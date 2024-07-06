@@ -1,7 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define RS_MAX_POLY_DEGREE 10
+#define MODULUS 257
+#define EXTRA_POINTS 3
 
 /***************************************************************************************************
  * BASIC MATH
@@ -20,6 +23,11 @@ int gcd(int a, int b){
     return a;
 }
 
+int mod(int x){
+    while(x < 0)    x += MODULUS;
+    return x % MODULUS;
+}
+
 /***************************************************************************************************
  * FRACTION
  **************************************************************************************************/
@@ -31,8 +39,17 @@ const Fraction ZERO = {0,1};
 const Fraction ONE  = {1,1};
 
 Fraction reduceFrac(Fraction x){
+    if(x.b == 0){
+        printf("Dividing by zero!");
+        exit(-1);
+    }
     int commonDivisor = gcd(x.a, x.b);
-    return (Fraction) {x.a/commonDivisor, x.b/commonDivisor};
+    x = (Fraction) {x.a/commonDivisor, x.b/commonDivisor};
+    if(x.b < 0){
+        x.b = -x.b;
+        x.a = -x.a;
+    }
+    return x;
 }
 
 Fraction sumFrac(Fraction x, Fraction y){
@@ -47,8 +64,43 @@ Fraction multFrac(Fraction x, Fraction y){
     return reduceFrac((Fraction){x.a*y.a, x.b*y.b});
 }
 
-Fraction divFrac(Fraction x, Fraction y){
-    return reduceFrac((Fraction){x.a*y.b, x.b*y.a});
+// Instead of doing it by brute force, use the Extended Euclidean algorithm?
+Fraction modFrac(Fraction x){
+    if(x.b == 1){
+        x.a = mod(x.a);
+        return x;
+    }
+
+    // The denominator is NOT coprime with the modulus, the inverse does not exist.
+    if(x.b % MODULUS == 0){
+        x.a = -1;
+        x.b = 1;
+        return x;
+    }
+
+    // The inverse exists and needs to be found:
+    // n === 1/b mod p, bn === 1 mod p  <-- Find n!
+    int n = 2; // No need to check 1 nor 0.
+    for(; n < MODULUS; n++){
+        if((x.b*n)%MODULUS == 1) break;
+    }
+
+    // The inverse couldn't be found.
+    if(n == MODULUS){
+        x.a = -1;
+        x.b = 1;
+        return x;
+    }
+
+    x.a = mod(x.a*n);
+    x.b = 1;
+    return x;
+}
+
+int equalFractions(Fraction x, Fraction y){
+    x = reduceFrac(x);
+    y = reduceFrac(y);
+    return (x.a == y.a) && (x.b == y.b);
 }
 
 void printFrac(Fraction x){
@@ -64,9 +116,14 @@ typedef struct{
     Fraction coeffs[RS_MAX_POLY_DEGREE+1];
 } Polynomial;
 
+const Polynomial POLY_ZERO = {
+    .degree = 0,
+    .coeffs = {(Fraction){0,1}},
+};
+
 const Polynomial POLY_ONE = {
     .degree = 0,
-    .coeffs = {(Fraction){1,1}}
+    .coeffs = {(Fraction){1,1}},
 };
 
 Polynomial createPoly(int* coeffs, int degree){
@@ -164,40 +221,305 @@ void printPoly(Polynomial p){
  **************************************************************************************************/
 
 /***************************************************************************************************
- * \brief Calculates a function which is zero at [zeros] and [valueAtOne] in [one].
+ * \brief Calculates a function which is zero at all [x] except at [one], where it is [valueAtOne].
  **************************************************************************************************/
-Polynomial createLagrangeInterp(int one, int* zeros, int zerosCount, int valueAtOne){
+Polynomial createSingleLagrangeInterp(int one, int* x, int count, int valueAtOne){
     Polynomial p = POLY_ONE;
-    for(int i = 0; i < zerosCount; i++){
+    for(int i = 0; i < count; i++){
+        // Skip the one.
+        if(x[i] == one) continue;
+
         Polynomial zeroP = {
             .degree = 1,
-            .coeffs = {(Fraction){-zeros[i], 1},  ONE},
+            .coeffs = {(Fraction){-x[i], 1},  ONE},
         };
         p = multPoly(p, zeroP);
     }
-    
-    // This should be an integer.
     Fraction pEvalAtOne = evaluatePoly(p, (Fraction){one, 1});
-    if(pEvalAtOne.b != 1){
-        printf("This values should be an integer\n");
-        exit(-1);
-    }
-
-    Fraction pFactor = reduceFrac((Fraction){valueAtOne, pEvalAtOne.a});
+    Fraction pFactor = reduceFrac((Fraction){valueAtOne*pEvalAtOne.b, pEvalAtOne.a});
     p = multPolyByFrac(p, pFactor);
     return p;
+}
+
+Polynomial createLagrangeInterp(int* x, int* y, int count){
+    Polynomial p = POLY_ZERO;
+    for(int i = 0; i < count; i++){
+        p = sumPoly(p, createSingleLagrangeInterp(x[i], x, count, y[i]));
+    }
+    return p;
+}
+
+/***************************************************************************************************
+ * ERROR CORRECTION ALGORITHM
+ **************************************************************************************************/
+
+// 0 if NO error, 1 if corrected and -1 if imposible to correct.
+int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
+    int pointsNotOk = 0;
+    
+    int x[pointsPerLagrange];
+    int y[pointsPerLagrange];
+    for(int i = 0; i < pointsPerLagrange; i++){
+        x[i] = rx[indices[i]];
+        printf("%d", x[i]);
+        y[i] = ry[indices[i]];
+    }
+    printf("\n");
+
+    Polynomial p = createLagrangeInterp(x, y, pointsPerLagrange);
+
+    // Get the points from rx that aren't in indices, using the fact that they are ordered from 
+    // lesser to greater to reduce computation time from O(n^2) to O(n).
+    int i = 0, j = 0;
+    while(i < len || j < (pointsPerLagrange-1)){
+        if(rx[i] != rx[indices[j]]){
+            // Found a value that it's not on indices.
+            Fraction eval = evaluatePoly(p, (Fraction){rx[i], 1});
+            eval = modFrac(eval);
+            if(eval.a == -1){   
+                // The result was a fraction that couldn't be inversed, therefore this function is
+                // not valid.
+                return -1;
+            }else{
+                pointsNotOk += eval.a != ry[i];
+            }
+        }else{
+            if(j < (pointsPerLagrange-1)) j++;
+        }
+        i++;
+    }
+
+    // There are too much errors to be fixed.
+    if(pointsNotOk >= EXTRA_POINTS)    return -1;
+    
+    // No errors found!
+    if(pointsNotOk == 0)               return 0;
+
+    // Errors were found, but can be fixed by evaluating the polynomial.
+    for(i = 0; i < len; i++){
+        Fraction eval = evaluatePoly(p, (Fraction){rx[i], 1});
+        eval = modFrac(eval);
+        ry[i] = eval.a;
+    }
+    return 1;
+}
+
+/***************************************************************************************************
+ * @brief Creates the combination of all points without repetition.
+ * @param rx. Array of x, the points of evaluation of the polynomials.
+ * @param ry. Array of y, the received values.
+ * @param len. Number of received points.
+ * @param pointsPerLagrange. The number of points used to create the first lagragian.
+ * @param indices. The indices/points which will be used to create the polynomial.
+ * @param indexValue. Which index is currently being written.
+ * @param indexPosition. To which position is the previous index value being written to [indices].
+ ***************************************************************************************************/
+int doCombinations(int* rx, int* ry, int len, int pointsPerLagrange, int* indices, 
+                   int indexValue, int indexPosition){
+    // If the number of points taken are enough, create the polynomial and check.
+    if(indexPosition >= pointsPerLagrange){
+        return checkPoints(rx, ry, len, pointsPerLagrange, indices);
+    }
+
+    for(int i = indexValue; i < len; i++){
+        indices[indexPosition] = rx[i];
+        int ret = doCombinations(rx, ry, len, pointsPerLagrange, indices, i + 1, indexPosition + 1);
+        // If the combination cannot be checked, continue searching for a new combination.
+        // If no error was found or the error was fixed, no need to continue searching.
+        if(ret != -1)   return ret;
+    }
+    // If this is reached, there are more errors than the maximum able for the algorithm to fix.
+    return -1;
+}
+
+int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
+    // Number of combinations is Bi<numberOfPoints, pointsPerCheck>, where Bi<a,b>=a!/b!/(a-b)!
+    int indices[pointsPerLagrange];
+    return doCombinations(rx, ry, len, pointsPerLagrange, indices, 0, 0);
+}
+
+/***************************************************************************************************
+ * SIMULATION
+ **************************************************************************************************/
+
+int generateRandom(int lower, int upper) {
+    if (lower > upper) {
+        int temp = lower;
+        lower = upper;
+        upper = temp;
+    }
+
+    // Generate random number within the range [lower, upper]
+    int num = (rand() % (upper - lower + 1)) + lower;
+    return num;
+}
+
+int createSimulation(int minimumPoints, int maxPoints, int maxErrors){
+    int numPoints = generateRandom(minimumPoints, maxPoints);
+    int numErrors = generateRandom(0, maxErrors);
+
+    int x[numPoints];
+    int y[numPoints];
+
+    for(int i = 0; i < numPoints; i++){
+        x[i] = i;
+        y[i] = generateRandom(0,255);
+    }
+
+    Polynomial p = createLagrangeInterp(x, y, numPoints);
+
+    int xx[numPoints + EXTRA_POINTS];
+    int yy[numPoints + EXTRA_POINTS];
+
+    for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+        xx[i] = i;
+
+        Fraction result = evaluatePoly(p, (Fraction){xx[i], 1});
+        result = modFrac(result);
+        
+        if(result.a == -1){
+            printf("Error modding the following message:\n");
+            for(int i = 0; i < numPoints; i++){
+                printf("x = %d  ->  y = %d\n", x[i], y[i]);
+            }
+            exit(-1);
+        }
+        
+        yy[i] = result.a;
+    }
+
+    // Up to this point, the points are generated and "sent".
+    int errory[numPoints + EXTRA_POINTS];
+    memcpy(errory, yy, sizeof(yy));
+    
+    // New error introduced!
+    for(int i = 0; i < numErrors; i++){
+        errory[generateRandom(0, numPoints + EXTRA_POINTS - 1)] = generateRandom(0,255);
+    }
+
+    int ry[numPoints + EXTRA_POINTS];
+    memcpy(ry, errory, sizeof(errory));
+
+    // Find the error.
+    int success = verifyMessage(xx, ry, numPoints+EXTRA_POINTS, numPoints);
+    if(success != -1){
+        int sameAsSent = 1;
+        for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+            sameAsSent &= yy[i] == ry[i];
+        }
+        if(!sameAsSent){
+            printf("points: %d\n", numPoints);
+            printPoly(p);
+            printf("NOT FIXED!\nX : ");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", xx[i]);
+            }
+            printf("\nY : ");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", yy[i]);
+            }
+            printf("\nEY: ");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", errory[i]);
+            }
+            printf("\nRY: ");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", ry[i]);
+            }
+            printf("\n\n");
+        }
+        return sameAsSent;
+    }
+    return 0;
+}
+
+void testBench(){
+    int success = 0;
+    int totalTests = 100;
+
+    for(int i = 0; i < totalTests; i++){
+        success += createSimulation(4, RS_MAX_POLY_DEGREE-EXTRA_POINTS, EXTRA_POINTS-1);
+    }
+    printf("Success: %d/%d\n", success, totalTests);
+}
+
+int testCase(){
+    int y[] = {177, 96, 222, 177, 128, 173, 8};
+    int numPoints = sizeof(y)/sizeof(int);
+
+    int x[numPoints];
+    for(int i = 0; i < numPoints; i++){
+        x[i] = i;
+    }
+
+    Polynomial p = createLagrangeInterp(x, y, numPoints);
+
+    int xx[numPoints + EXTRA_POINTS];
+    int yy[numPoints + EXTRA_POINTS];
+
+    for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+        xx[i] = i;
+
+        Fraction result = evaluatePoly(p, (Fraction){xx[i], 1});
+        result = modFrac(result);
+        
+        if(result.a == -1){
+            printf("Error modding the following message:\n");
+            for(int i = 0; i < numPoints; i++){
+                printf("x = %d  ->  y = %d\n", x[i], y[i]);
+            }
+            exit(-1);
+        }
+        
+        yy[i] = result.a;
+    }
+
+    // Up to this point, the points are generated and "sent".
+    int errory[numPoints + EXTRA_POINTS];
+    memcpy(errory, yy, sizeof(yy));
+    
+    // New error introduced!
+    errory[1] = 65;
+
+    int ry[numPoints + EXTRA_POINTS];
+    memcpy(ry, errory, sizeof(yy));
+
+    // Find the error.
+    int success = verifyMessage(xx, ry, numPoints+EXTRA_POINTS, numPoints);
+    if(success != -1){
+        int sameAsSent = 1;
+        for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+            sameAsSent &= yy[i] == ry[i];
+        }
+        if(!sameAsSent){
+            printf("points: %d\n", numPoints);
+            printPoly(p);
+            printf("NOT FIXED!\n");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", xx[i]);
+            }
+            printf("\nY : ");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", yy[i]);
+            }
+            printf("\nEY: ");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", errory[i]);
+            }
+            printf("\nRY: ");
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+                printf("%d, ", ry[i]);
+            }
+            printf("\n\n");
+        }
+        return sameAsSent;
+    }
+    return 0;
 }
 
 /***************************************************************************************************
  * MAIN
  **************************************************************************************************/
 int main(){
-    int a[] = {1,2,3,4};
-    int b[] = {1,2};
-
-    Polynomial ap = createPoly(a, sizeof(a)/sizeof(int)-1);
-    Polynomial bp = createPoly(b, sizeof(b)/sizeof(int)-1);
-
-    printFrac(evaluatePoly(ap, sumFrac(ONE,ONE)));
-
+    testCase();
 }
