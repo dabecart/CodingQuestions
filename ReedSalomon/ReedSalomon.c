@@ -4,11 +4,15 @@
 #include <time.h>
 
 #define RS_MAX_POLY_DEGREE 13
-#define MODULUS 257
 #define EXTRA_POINTS 3
 #define BAR_WIDTH 50
 
+#define MODULUS 257
+#define MAX_DATA_VALUE 255
+
 // If we take that the extra points are not corrupted, the computations are easier and faster to do.
+// When the EEPROM is corrupted, we don't take into account the Hamming and CRC codes, as they are 
+// redundant checks used to fix >2 bit length errors.
 int EEPROM_NOT_CORRUPTED = 1;
 
 /***************************************************************************************************
@@ -48,6 +52,25 @@ int arrayParity(int* x, int len){
         par ^= parity(x[i]);
     }
     return par;
+}
+
+#define POLYNOMIAL 0x1021
+#define INITIAL_CRC 0xFFFF
+
+unsigned short calculateCRC(unsigned char *data, size_t length) {
+    unsigned short crc = INITIAL_CRC;
+    for (size_t byteIndex = 0; byteIndex < length; byteIndex++) {
+        crc ^= (unsigned short)data[byteIndex] << 8;
+
+        for (int bit = 0; bit < 8; bit++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ POLYNOMIAL;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    return crc;
 }
 
 /***************************************************************************************************
@@ -98,6 +121,9 @@ Fraction reduceFrac(Fraction x){
         printf("Dividing by zero!");
         exit(-1);
     }
+    // Already reduced.
+    if(x.b == 1)    return modFrac(x);
+
     int commonDivisor = gcd(x.a, x.b);
     x = (Fraction) {x.a/commonDivisor, x.b/commonDivisor};
     if(x.b < 0){
@@ -105,9 +131,7 @@ Fraction reduceFrac(Fraction x){
         x.a = -x.a;
     }
 
-    x = modFrac(x);
-
-    return x;
+    return modFrac(x);
 }
 
 Fraction sumFrac(Fraction x, Fraction y){
@@ -350,15 +374,13 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
         ry[i] = eval.a;
     }
 
-    // If the EEPROM isn't corrupted, use the Hamming.
+    // If the EEPROM isn't corrupted, use the Hamming and CRC.
     if(EEPROM_NOT_CORRUPTED){
-        // Check the Hamming. The Hamming is sent after the EXTRA_POINTS in the array.
+        // Check the Hamming. The Hamming is sent after the EXTRA_POINTS in the array ry.
         // If the message is the same, when XORing the Hamming, it should return 0.
-        int newHamming = calculateHamming(rx,ry, len) ^ (ry[len] & 0x7F);
-        // Calculate the parity of the whole message. Compare it with the parity of the MSB of the 
-        // Hamming.
-        int newParity = arrayParity(ry, len) << 7; 
-        if(newHamming == 0 && newParity == (ry[len] & 0x80)){
+        int newHamming = calculateHamming(rx,ry, len);
+        int crc = calculateCRC((unsigned char*) ry, len*sizeof(int)) & 0xF0;
+        if((newHamming | crc) == ry[len]){
             return 1;
         }
 
@@ -366,7 +388,6 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
         memcpy(ry, tempSave, len*sizeof(int));
         return -1;
     }
-
     return 1;
 }
 
@@ -379,16 +400,30 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
  * @param indices. The indices/points which will be used to create the polynomial.
  * @param indexValue. Which index is currently being written.
  * @param indexPosition. To which position is the previous index value being written to [indices].
- ***************************************************************************************************/
-int doCombinations(int* rx, int* ry, int len, int pointsPerLagrange, int* indices, 
-                   int indexValue, int indexPosition){
+ * @param hammingBehaviour. If 0, nevermind the Hamming. If 1, only run the points which contain 
+ * the Hamming. If -1, only run the points which don't contain the Hamming.
+ * @param hammingValue. The value of the Hamming, aka. on which position the wrong point is.
+ * @param hammingIndex. Where in [indices] is the Hamming.
+ **************************************************************************************************/
+int doCombinations(int* rx, int* ry, int len, int pointsPerLagrange, 
+                   int* indices, int indexValue, int indexPosition,
+                   int hammingBehaviour, int hammingValue, int hammingIndex){
     // If the number of points taken are enough, create the polynomial and check.
     if(indexPosition >= pointsPerLagrange){
-        return checkPoints(rx, ry, len, pointsPerLagrange, indices);
+        if((hammingBehaviour == 0) || (hammingBehaviour == -1) || 
+           (hammingBehaviour ==  1 && (indices[hammingIndex] == hammingValue))){
+            return checkPoints(rx, ry, len, pointsPerLagrange, indices);
+        }
+        return -1;
     }
 
     for(int i = indexValue; i < len; i++){
         indices[indexPosition] = rx[i];
+
+        if(i == hammingValue){
+            if(hammingBehaviour == -1)  continue;
+            hammingIndex = i;
+        }
 
         int nextIndex = i + 1;
         // If we know the EEPROM is working, then we should always try to use the extra points 
@@ -402,7 +437,9 @@ int doCombinations(int* rx, int* ry, int len, int pointsPerLagrange, int* indice
             }
         }
 
-        int ret = doCombinations(rx, ry, len, pointsPerLagrange, indices, nextIndex, indexPosition + 1);
+        int ret = doCombinations(rx, ry, len, pointsPerLagrange, 
+                                 indices, nextIndex, indexPosition + 1,
+                                 hammingBehaviour, hammingValue, hammingIndex);
         // If the combination cannot be checked, continue searching for a new combination.
         // If no error was found or the error was fixed, no need to continue searching.
         if(ret != -1)   return ret;
@@ -420,11 +457,79 @@ int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
     // Example:
     //    > Using 10 points, with 3 EXTRA_POINTS: Faulty: 286 checks, Non faulty: 120 checks (~42%).
     int indices[pointsPerLagrange];
-    return doCombinations(rx, ry, len, pointsPerLagrange, indices, 0, 0);
+    
+    if(EEPROM_NOT_CORRUPTED){
+        // If the EEPROM is right, we can use the Hamming code to indicate which point to SKIP in 
+        // the case there's ONLY ONE ERROR (which should be the most common case if the 
+        // interlayering works ok). 
+
+        // If the error couldn't be fixed, then it must have been that there is more than one error 
+        // on the message, so only execute the points which CONTAINS the Hamming.
+        int currentHamming = calculateHamming(rx,ry,len) ^ (ry[len] & 0x7F);
+        
+        // When using the EEPROM the Hamming has to be on the data side, not on the EEPROM side. 
+        // If the Hamming is on the EEPROM, that means that there are more than two errors.
+        if(currentHamming < len - EXTRA_POINTS){
+            int verificationStatus = 
+                        doCombinations(rx, ry, len, pointsPerLagrange,
+                                    indices, 0, 0, 
+                                    -1, currentHamming, 0);       // Skip the Hamming.
+            if(verificationStatus == -1){
+                return  doCombinations(rx, ry, len, pointsPerLagrange, 
+                                    indices, 0, 0, 
+                                    1, currentHamming, 0); // Only run Hamming's combinations.
+            }else{
+                return verificationStatus;
+            }
+        }
+    }
+ 
+    // Nevermind the Hamming.
+    return doCombinations(rx, ry, len, pointsPerLagrange, indices, 0, 0, 0, 0, 0);
+}
+
+void addErrorCorrectionFields(int* x, int* y, int numPoints, int** xx, int** yy){
+    if(x == NULL || y == NULL){
+        perror("Input data is NULL!");
+        exit(-1);
+    }
+
+    Polynomial p = createLagrangeInterp(x, y, numPoints);
+
+    *xx = (int*) malloc((numPoints + EXTRA_POINTS)*sizeof(int));
+    *yy = (int*) malloc((numPoints + EXTRA_POINTS + 1)*sizeof(int));
+
+    for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+        (*xx)[i] = i;
+
+        Fraction result = evaluatePoly(p, (Fraction){(*xx)[i], 1});
+        result = modFrac(result);
+        
+        if(result.a == -1){
+            printf("Error modding the following message:\n");
+            for(int i = 0; i < numPoints; i++){
+                printf("x = %d  ->  y = %d\n", x[i], y[i]);
+            }
+            exit(-1);
+        }
+        
+        (*yy)[i] = result.a;
+    }
+
+    // Add Hamming code.
+    (*yy)[numPoints + EXTRA_POINTS] = calculateHamming(*xx, *yy, numPoints + EXTRA_POINTS);
+    if((*yy)[numPoints + EXTRA_POINTS] >= 16){
+        printf("Hamming out of bounds\n");
+        exit(-1);
+    }
+
+    // Add CRC.
+    (*yy)[numPoints + EXTRA_POINTS] |= 
+        calculateCRC((unsigned char*)y, (numPoints+EXTRA_POINTS)*sizeof(int)) & 0xF0;
 }
 
 /***************************************************************************************************
- * SIMULATION
+ * RANDOM SIMULATION
  **************************************************************************************************/
 
 int generateRandom(int lower, int upper) {
@@ -442,40 +547,19 @@ int generateRandom(int lower, int upper) {
 }
 
 int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numErrors){
-    Polynomial p = createLagrangeInterp(x, y, numPoints);
+    int* xx;
+    int* yy;
 
-    int xx[numPoints + EXTRA_POINTS];
-    int yy[numPoints + EXTRA_POINTS + 1];
+    // Add to the message the error correction fields.
+    addErrorCorrectionFields(x, y, numPoints, &xx, &yy);
 
-    for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
-        xx[i] = i;
-
-        Fraction result = evaluatePoly(p, (Fraction){xx[i], 1});
-        result = modFrac(result);
-        
-        if(result.a == -1){
-            printf("Error modding the following message:\n");
-            for(int i = 0; i < numPoints; i++){
-                printf("x = %d  ->  y = %d\n", x[i], y[i]);
-            }
-            exit(-1);
-        }
-        
-        yy[i] = result.a;
-    }
-
-    // Add Hamming code.
-    yy[numPoints + EXTRA_POINTS] = calculateHamming(xx, yy, numPoints + EXTRA_POINTS);
-    // Add parity of the whole message at the MSB of the Hamming.
-    yy[numPoints + EXTRA_POINTS] |= arrayParity(yy, numPoints + EXTRA_POINTS) << 7;
- 
     // Up to this point, the points are generated and "sent".
     int errory[numPoints + EXTRA_POINTS + 1];
     memcpy(errory, yy, sizeof(yy));
     
     // New errors are introduced!
     for(int i = 0; i < numErrors; i++){
-        errory[errX[i]] = errY[i];
+        errory[errX[i]] ^= errY[i];
     }
 
     int ry[numPoints + EXTRA_POINTS + 1];
@@ -488,15 +572,14 @@ int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numEr
         for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
             sameAsSent &= yy[i] == ry[i];
         }
-        success = sameAsSent;
-        if(!success) printf("NOT FIXED!\n");
-    }else{
-        success = 0;
+        if(!sameAsSent){
+            printf("NOT FIXED!\n");
+            return -2;
+        }
     }
 
     if(!success){
         printf("Points: %d. Errors: %d\n", numPoints, numErrors);
-        printPoly(p);
         printf("\nX :\t");
         for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
             printf("%d,\t", xx[i]);
@@ -524,6 +607,9 @@ int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numEr
         printf("\n\n");
     }
 
+    free(xx);
+    free(yy);
+    
     return success;
 }
 
@@ -535,11 +621,11 @@ int createSimulation(int numPoints, int minErrors, int maxErrors){
 
     for(int i = 0; i < numPoints; i++){
         x[i] = i;
-        y[i] = generateRandom(0,255);
+        y[i] = generateRandom(0,MAX_DATA_VALUE);
     }
 
-    int errX[numErrors];
-    int errY[numErrors];
+    int errX[maxErrors];
+    int errY[maxErrors];
 
     // New error introduced!
     // TODO: Fix the points so that the X don't repeat!
@@ -549,13 +635,13 @@ int createSimulation(int numPoints, int minErrors, int maxErrors){
         }else{
             errX[i] = generateRandom(0, numPoints + EXTRA_POINTS - 1);
         }
-        errY[i] = generateRandom(0,255);
+        errY[i] = generateRandom(0,MAX_DATA_VALUE);
     }
 
     return runSimulation(x, y, numPoints, errX, errY, numErrors);
 }
 
-void printLoadingBar(int progress, int total) {
+void printLoadingBar(long progress, long total) {
     int barLen = (progress * BAR_WIDTH) / total;
     printf("Progress: [");
     for (int i = 0; i < BAR_WIDTH; ++i) {
@@ -565,7 +651,7 @@ void printLoadingBar(int progress, int total) {
             printf(" ");
         }
     }
-    printf("] %d%%\r", (progress * 100) / total);
+    printf("] %ld%%: %ld/%ld\r", (progress * 100) / total, progress, total);
     fflush(stdout);
 }
 
@@ -574,10 +660,12 @@ void testBench(int totalTests){
     printf("Number of errors: rand(%d, %d)\n", 1, EXTRA_POINTS);
     printf("################ TEST BEGIN ################\n");
     int success = 0;
+    int noErrors = 0;
+    int fixedIncorrectly = 0;
 
     struct timespec t0, t1;
     long long maxElapsed = 0;
-    long long minElapsed = LLONG_MAX;
+    long long minElapsed = 0x7fffffffffffffffLL;
     long long averageElapsed = 0;
 
     for(int i = 0; i < totalTests; i++){
@@ -587,7 +675,10 @@ void testBench(int totalTests){
         }
 
         // Run the simulation.
-        success += createSimulation(RS_MAX_POLY_DEGREE-EXTRA_POINTS, 1, EXTRA_POINTS-1);
+        int result = createSimulation(RS_MAX_POLY_DEGREE-EXTRA_POINTS, 0, EXTRA_POINTS-1);
+        success += result >= 0;
+        noErrors += result == 0;
+        fixedIncorrectly += result == -2;
         
         if (clock_gettime(CLOCK_REALTIME, &t1) != 0) {
             perror("clock_gettime");
@@ -607,14 +698,19 @@ void testBench(int totalTests){
         printLoadingBar(i+1, totalTests);
     }
     printf("\n############# TEST RESULTS ################\n");
-    printf("Success rate: %d/%d\n", success, totalTests);
-    printf("Average elapsed time: %ld ns\n", averageElapsed/totalTests);
-    printf("Minimum elapsed time: %ld ns\n", minElapsed);
-    printf("Maximum elapsed time: %ld ns\n", maxElapsed);
+    printf("Success rate: %d/%d. No errors: %d. Fixed incorrectly: %d.\n", 
+           success, totalTests, noErrors, fixedIncorrectly);
+    printf("Average elapsed time: %lld ns\n", averageElapsed/totalTests);
+    printf("Minimum elapsed time: %lld ns\n", minElapsed);
+    printf("Maximum elapsed time: %lld ns\n", maxElapsed);
 }
 
+/***************************************************************************************************
+ * CUSTOM SIMULATION
+ **************************************************************************************************/
+
 int testCase(){
-    int y[] = {60,     12,     51,     237, 154};
+    int y[] = { 29,     18,     248,    166,    108,    217,    199,    9,      19,     180};
     int numPoints = sizeof(y)/sizeof(int);
 
     int x[numPoints];
@@ -622,11 +718,165 @@ int testCase(){
         x[i] = i;
     }
 
-    int errX[] = {0,1};
-    int errY[] = {164,189};
+    int errX[] = {4,8};
+    int errY[] = {76,34};
     int numErrors = sizeof(errX)/sizeof(int);
 
     return runSimulation(x, y, numPoints, errX, errY, numErrors);
+}
+
+/***************************************************************************************************
+ * FILE REPARATION
+ **************************************************************************************************/
+
+void createRecuperationFile(const char* filename){
+    FILE* inputFile = fopen(filename, "rb");
+    if (inputFile == NULL) {
+        perror("Error opening input file");
+        exit(-1);
+    }
+
+    FILE* outputFile = fopen("errorRec.bin", "wb");
+    if (outputFile == NULL) {
+        perror("Error creating output file");
+        exit(-1);
+    }
+
+    fseek(inputFile, 0, SEEK_END);
+    long fileSize = ftell(inputFile);
+    fseek(inputFile, 0, SEEK_SET);
+
+    int x[RS_MAX_POLY_DEGREE-EXTRA_POINTS];
+    int y[RS_MAX_POLY_DEGREE-EXTRA_POINTS];
+    int dataLen = sizeof(x)/sizeof(int);
+
+    for(int i = 0; i < dataLen; i++)    x[i] = i;
+
+    long filePosition = 0;
+    while(filePosition < fileSize){
+        printLoadingBar(filePosition, fileSize);
+        memset(y, 0, sizeof(y));
+
+        for(int i = 0; i < dataLen; i++){
+            unsigned char read = fgetc(inputFile);
+
+            if(read == EOF) break;
+
+            y[i] = read; 
+        }
+
+        int* xx;
+        int* yy;
+        addErrorCorrectionFields(x, y, dataLen, &xx, &yy);
+
+        for(int j = dataLen; j < dataLen+EXTRA_POINTS+1; j++){
+            unsigned char putData = yy[j] & 0xFF;
+            int writeResult = fputc(putData, outputFile);
+            if(writeResult == EOF || writeResult != writeResult){
+                printf("The program is not writing properly\n");
+                exit(-1);
+            }
+        }
+
+        free(xx);
+        free(yy);
+
+        filePosition += dataLen;
+        fseek(inputFile, filePosition, SEEK_SET);
+    }
+
+    if(filePosition >= fileSize){
+        printf("\nFile completely error proofed!\n");
+    }else{
+        printf("\nFile wasn't completely processed!\n");
+    }
+
+    fclose(inputFile);
+    fclose(outputFile);
+}
+
+void recuperateFile(const char* inputFilename, const char* recuperationFilename){
+    FILE* inputFile = fopen(inputFilename, "rb");
+    if (inputFile == NULL) {
+        perror("Error opening input file");
+        exit(-1);
+    }
+
+    FILE* recFile = fopen(recuperationFilename, "rb");
+    if (recFile == NULL) {
+        perror("Error opening the recuperation file");
+        exit(-1);
+    }
+
+    FILE* outputFile = fopen("fixed.bin", "wb");
+    if (outputFile == NULL) {
+        perror("Error creating output file");
+        exit(-1);
+    }
+
+    fseek(inputFile, 0, SEEK_END);
+    long inputFilesize = ftell(inputFile);
+    fseek(inputFile, 0, SEEK_SET);
+
+    fseek(recFile, 0, SEEK_END);
+    long recFilesize = ftell(recFile);
+    fseek(recFile, 0, SEEK_SET);
+
+    int x[RS_MAX_POLY_DEGREE];
+    int y[RS_MAX_POLY_DEGREE+1];
+    int dataLen = sizeof(x)/sizeof(int);
+
+    for(int i = 0; i < dataLen; i++)    x[i] = i;
+
+    long filePosition = 0;
+    long correctionPosition = 0;
+    while(filePosition < inputFilesize && correctionPosition < recFilesize){
+        printLoadingBar(filePosition, inputFilesize);
+        memset(y, 0, sizeof(y));
+
+        for(int i = 0; i < dataLen-EXTRA_POINTS; i++){
+            unsigned char read = fgetc(inputFile);
+
+            if(read == EOF) break;
+
+            y[i] = read; 
+        }
+
+        for(int i = dataLen-EXTRA_POINTS; i < dataLen+1; i++){
+            unsigned char read = fgetc(recFile);
+
+            if(read == EOF) break;
+
+            y[i] = read; 
+        }
+
+        int success = verifyMessage(x, y, dataLen, RS_MAX_POLY_DEGREE-EXTRA_POINTS);
+        if(success < 0){
+            printf("\nError fixing the file at file: 0x%08X, correction: 0x%08X!\n", filePosition, correctionPosition);
+        }
+
+        for(int j = 0; j < RS_MAX_POLY_DEGREE-EXTRA_POINTS; j++){
+            char putData = y[j] & 0xFF;
+            fputc(putData, outputFile);
+        }
+
+        filePosition += dataLen-EXTRA_POINTS;
+        fseek(inputFile, filePosition, SEEK_SET);
+        correctionPosition += EXTRA_POINTS+1;
+        fseek(inputFile, filePosition, SEEK_SET);
+    }
+
+    if(filePosition >= inputFilesize && correctionPosition >= recFilesize){
+        printf("\nCorrection completed!\n");
+    }else{
+        printf("\nThe files were missaligned or an external error happened!\n");
+        printf("Input: %ld/%ld, Correction: %ld/%ld\n", 
+            filePosition, inputFilesize, correctionPosition, recFilesize);
+    }
+
+    fclose(inputFile);
+    fclose(recFile);
+    fclose(outputFile);
 }
 
 /***************************************************************************************************
@@ -634,6 +884,9 @@ int testCase(){
  **************************************************************************************************/
 int main(){
     srand(time(0));
-    testBench(100000);
+    // testBench(10000);
     // testCase();
+    // createRecuperationFile("C:\\Users\\Daniel\\repos\\CodingQuestions\\original.bin");
+    recuperateFile("C:\\Users\\Daniel\\repos\\CodingQuestions\\original.bin",
+        "C:\\Users\\Daniel\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
 }
