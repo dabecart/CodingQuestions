@@ -135,14 +135,17 @@ Fraction reduceFrac(Fraction x){
 }
 
 Fraction sumFrac(Fraction x, Fraction y){
+    if(x.b == 1 && y.b == 1) return reduceFrac((Fraction) {x.a + y.a, 1});
     return reduceFrac((Fraction){x.a*y.b + y.a*x.b, x.b*y.b});
 }
 
 Fraction subsFrac(Fraction x, Fraction y){
+    if(x.b == 1 && y.b == 1) return reduceFrac((Fraction) {x.a - y.a, 1});
     return reduceFrac((Fraction){x.a*y.b - y.a*x.b, x.b*y.b});
 }
 
 Fraction multFrac(Fraction x, Fraction y){
+    if(x.b == 1 && y.b == 1) return reduceFrac((Fraction) {x.a * y.a, 1});
     return reduceFrac((Fraction){x.a*y.a, x.b*y.b});
 }
 
@@ -323,8 +326,8 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
     int y[pointsPerLagrange];
     for(int i = 0; i < pointsPerLagrange; i++){
         x[i] = rx[indices[i]];
-        // printf("%d,", x[i]);
         y[i] = ry[indices[i]];
+        // printf("%d,", x[i]);
     }
     // printf("\n");
 
@@ -488,7 +491,7 @@ int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
     return doCombinations(rx, ry, len, pointsPerLagrange, indices, 0, 0, 0, 0, 0);
 }
 
-void addErrorCorrectionFields(int* x, int* y, int numPoints, int** xx, int** yy){
+void addErrorCorrectionFields(int* x, int* y, int numPoints, int* xx, int* yy){
     if(x == NULL || y == NULL){
         perror("Input data is NULL!");
         exit(-1);
@@ -496,13 +499,10 @@ void addErrorCorrectionFields(int* x, int* y, int numPoints, int** xx, int** yy)
 
     Polynomial p = createLagrangeInterp(x, y, numPoints);
 
-    *xx = (int*) malloc((numPoints + EXTRA_POINTS)*sizeof(int));
-    *yy = (int*) malloc((numPoints + EXTRA_POINTS + 1)*sizeof(int));
-
     for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
-        (*xx)[i] = i;
+        xx[i] = i;
 
-        Fraction result = evaluatePoly(p, (Fraction){(*xx)[i], 1});
+        Fraction result = evaluatePoly(p, (Fraction){xx[i], 1});
         result = modFrac(result);
         
         if(result.a == -1){
@@ -513,19 +513,19 @@ void addErrorCorrectionFields(int* x, int* y, int numPoints, int** xx, int** yy)
             exit(-1);
         }
         
-        (*yy)[i] = result.a;
+        yy[i] = result.a;
     }
 
     // Add Hamming code.
-    (*yy)[numPoints + EXTRA_POINTS] = calculateHamming(*xx, *yy, numPoints + EXTRA_POINTS);
-    if((*yy)[numPoints + EXTRA_POINTS] >= 16){
+    yy[numPoints + EXTRA_POINTS] = calculateHamming(xx, yy, numPoints + EXTRA_POINTS);
+    if(yy[numPoints + EXTRA_POINTS] >= 16){
         printf("Hamming out of bounds\n");
         exit(-1);
     }
 
     // Add CRC.
-    (*yy)[numPoints + EXTRA_POINTS] |= 
-        calculateCRC((unsigned char*)y, (numPoints+EXTRA_POINTS)*sizeof(int)) & 0xF0;
+    int crc = calculateCRC((unsigned char*)yy, (numPoints+EXTRA_POINTS)*sizeof(int)) & 0xF0;
+    yy[numPoints + EXTRA_POINTS] |= crc;
 }
 
 /***************************************************************************************************
@@ -547,11 +547,11 @@ int generateRandom(int lower, int upper) {
 }
 
 int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numErrors){
-    int* xx;
-    int* yy;
+    int xx[numPoints + EXTRA_POINTS];
+    int yy[numPoints + EXTRA_POINTS + 1];
 
     // Add to the message the error correction fields.
-    addErrorCorrectionFields(x, y, numPoints, &xx, &yy);
+    addErrorCorrectionFields(x, y, numPoints, xx, yy);
 
     // Up to this point, the points are generated and "sent".
     int errory[numPoints + EXTRA_POINTS + 1];
@@ -559,7 +559,11 @@ int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numEr
     
     // New errors are introduced!
     for(int i = 0; i < numErrors; i++){
-        errory[errX[i]] ^= errY[i];
+        if(EEPROM_NOT_CORRUPTED && i >= numPoints){
+            printf("If EEPROM is not corrupted, there cannot be errors and the EEPROM side.\n");
+            exit(-1);
+        }
+        errory[errX[i]] = errY[i];
     }
 
     int ry[numPoints + EXTRA_POINTS + 1];
@@ -574,11 +578,11 @@ int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numEr
         }
         if(!sameAsSent){
             printf("NOT FIXED!\n");
-            return -2;
+            success = -2;
         }
     }
 
-    if(!success){
+    if(success < 0){
         printf("Points: %d. Errors: %d\n", numPoints, numErrors);
         printf("\nX :\t");
         for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
@@ -607,10 +611,22 @@ int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numEr
         printf("\n\n");
     }
 
-    free(xx);
-    free(yy);
-    
     return success;
+}
+
+void swap(int *a, int *b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+// Function to shuffle an array using Fisher-Yates algorithm to generate the indices for the random
+// errors without them being repeated.
+void shuffleArray(int *array, int len) {
+    for (int i = len - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        swap(&array[i], &array[j]);
+    }
 }
 
 int createSimulation(int numPoints, int minErrors, int maxErrors){
@@ -627,15 +643,37 @@ int createSimulation(int numPoints, int minErrors, int maxErrors){
     int errX[maxErrors];
     int errY[maxErrors];
 
-    // New error introduced!
-    // TODO: Fix the points so that the X don't repeat!
-    for(int i = 0; i < numErrors; i++){
+    // New errors introduced!
+    // Generate the Xs (where the errors will happen).
+    if(numErrors >= 2){
+        int randX[numPoints+EXTRA_POINTS];
         if(EEPROM_NOT_CORRUPTED){
-            errX[i] = generateRandom(0, numPoints - 1);
+            for(int i = 0; i < numPoints; i++) randX[i] = i;
+            shuffleArray(randX, numPoints);
         }else{
-            errX[i] = generateRandom(0, numPoints + EXTRA_POINTS - 1);
+            for(int i = 0; i < numPoints+EXTRA_POINTS; i++) randX[i] = i;
+            shuffleArray(randX, numPoints+EXTRA_POINTS);
         }
-        errY[i] = generateRandom(0,MAX_DATA_VALUE);
+        memcpy(errX, randX, sizeof(int)*numErrors);
+    }else{
+        for(int i = 0; i < numErrors; i++){
+            if(EEPROM_NOT_CORRUPTED){
+                errX[i] = generateRandom(0, numPoints - 1);
+            }else{
+                errX[i] = generateRandom(0, numPoints + EXTRA_POINTS - 1);
+            }
+        }
+    }
+
+    // Generate the Ys (the values of the errors).
+    for(int i = 0; i < numErrors; i++){
+        // Generate random numbers until the generated number is different from the number in the 
+        // array.
+        int rnd = 0;
+        do{
+            rnd = generateRandom(0, 255);
+        }while(rnd == y[errX[i]]);
+        errY[i] = rnd;
     }
 
     return runSimulation(x, y, numPoints, errX, errY, numErrors);
@@ -675,7 +713,7 @@ void testBench(int totalTests){
         }
 
         // Run the simulation.
-        int result = createSimulation(RS_MAX_POLY_DEGREE-EXTRA_POINTS, 0, EXTRA_POINTS-1);
+        int result = createSimulation(RS_MAX_POLY_DEGREE-EXTRA_POINTS, 1, EXTRA_POINTS-1);
         success += result >= 0;
         noErrors += result == 0;
         fixedIncorrectly += result == -2;
@@ -700,6 +738,9 @@ void testBench(int totalTests){
     printf("\n############# TEST RESULTS ################\n");
     printf("Success rate: %d/%d. No errors: %d. Fixed incorrectly: %d.\n", 
            success, totalTests, noErrors, fixedIncorrectly);
+    double bitRate = ((double)(RS_MAX_POLY_DEGREE-EXTRA_POINTS))*totalTests*1e9/averageElapsed;
+    double byteRate = bitRate / 8.0;
+    printf("Bitrate: %0.2f bits/sec. Byterate: %0.2f bytes/sec.\n", bitRate, byteRate);
     printf("Average elapsed time: %lld ns\n", averageElapsed/totalTests);
     printf("Minimum elapsed time: %lld ns\n", minElapsed);
     printf("Maximum elapsed time: %lld ns\n", maxElapsed);
@@ -765,9 +806,9 @@ void createRecuperationFile(const char* filename){
             y[i] = read; 
         }
 
-        int* xx;
-        int* yy;
-        addErrorCorrectionFields(x, y, dataLen, &xx, &yy);
+        int xx[RS_MAX_POLY_DEGREE];
+        int yy[RS_MAX_POLY_DEGREE + 1];
+        addErrorCorrectionFields(x, y, dataLen, xx, yy);
 
         for(int j = dataLen; j < dataLen+EXTRA_POINTS+1; j++){
             unsigned char putData = yy[j] & 0xFF;
@@ -778,12 +819,10 @@ void createRecuperationFile(const char* filename){
             }
         }
 
-        free(xx);
-        free(yy);
-
         filePosition += dataLen;
         fseek(inputFile, filePosition, SEEK_SET);
     }
+    printLoadingBar(fileSize, fileSize);
 
     if(filePosition >= fileSize){
         printf("\nFile completely error proofed!\n");
@@ -852,7 +891,7 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
 
         int success = verifyMessage(x, y, dataLen, RS_MAX_POLY_DEGREE-EXTRA_POINTS);
         if(success < 0){
-            printf("\nError fixing the file at file: 0x%08X, correction: 0x%08X!\n", filePosition, correctionPosition);
+            printf("\nError fixing the file at: 0x%08X, correction: 0x%08X!\n", filePosition, correctionPosition);
         }
 
         for(int j = 0; j < RS_MAX_POLY_DEGREE-EXTRA_POINTS; j++){
@@ -865,11 +904,12 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
         correctionPosition += EXTRA_POINTS+1;
         fseek(inputFile, filePosition, SEEK_SET);
     }
+    printLoadingBar(inputFilesize, inputFilesize);
 
     if(filePosition >= inputFilesize && correctionPosition >= recFilesize){
         printf("\nCorrection completed!\n");
     }else{
-        printf("\nThe files were missaligned or an external error happened!\n");
+        printf("\nThe files were misaligned or an external error happened!\n");
         printf("Input: %ld/%ld, Correction: %ld/%ld\n", 
             filePosition, inputFilesize, correctionPosition, recFilesize);
     }
@@ -884,9 +924,9 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
  **************************************************************************************************/
 int main(){
     srand(time(0));
-    // testBench(10000);
+    // testBench(1000);
     // testCase();
-    // createRecuperationFile("C:\\Users\\Daniel\\repos\\CodingQuestions\\original.bin");
-    recuperateFile("C:\\Users\\Daniel\\repos\\CodingQuestions\\original.bin",
-        "C:\\Users\\Daniel\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
+    // createRecuperationFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin");
+    recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin",
+        "C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
 }
