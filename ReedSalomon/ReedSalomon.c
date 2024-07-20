@@ -3,11 +3,19 @@
 #include <string.h>
 #include <time.h>
 
+// The maximum degree of polynomials in this program.
 #define RS_MAX_POLY_DEGREE 13
+// Number of extra points to evaluate on the polynomial. The number of errors that can be fixed are
+// up to EXTRA_POINTS-1. Errors will be detected for up to EXTRA_POINTS, but they will not be 
+// fixable. 
 #define EXTRA_POINTS 3
+// Value for the loading bar.
 #define BAR_WIDTH 50
-
+// The modulus we'll be working on. This has to be a PRIME!!!
 #define MODULUS 257
+
+// Used for the input values. If inputs are bytes, this value will be 255. 
+// Used only for simulations!
 #define MAX_DATA_VALUE 255
 
 // If we take that the extra points are not corrupted, the computations are easier and faster to do.
@@ -451,35 +459,48 @@ int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
     // Example:
     //    > Using 10 points, with 3 EXTRA_POINTS: Faulty: 286 checks, Non faulty: 120 checks (~42%).
     int indices[pointsPerLagrange];
+    int verificationStatus = 0;
     
     if(EEPROM_NOT_CORRUPTED){
         // If the EEPROM is right, we can use the Hamming code to indicate which point to SKIP in 
         // the case there's ONLY ONE ERROR (which should be the most common case if the 
-        // interlayering works ok). 
+        // interlacing works ok). 
 
         // If the error couldn't be fixed, then it must have been that there is more than one error 
         // on the message, so only execute the points which CONTAINS the Hamming.
-        int currentHamming = calculateHamming(rx,ry,len) ^ (ry[len] & 0x7F);
+        int currentHamming = calculateHamming(rx,ry,len) ^ (ry[len] & 0x0F);
         
         // When using the EEPROM the Hamming has to be on the data side, not on the EEPROM side. 
         // If the Hamming is on the EEPROM, that means that there are more than two errors.
         if(currentHamming < len - EXTRA_POINTS){
-            int verificationStatus = 
+            verificationStatus = 
                         doCombinations(rx, ry, len, pointsPerLagrange,
                                     indices, 0, 0, 
                                     -1, currentHamming, 0);       // Skip the Hamming.
-            if(verificationStatus == -1){
-                return  doCombinations(rx, ry, len, pointsPerLagrange, 
+            if(verificationStatus < 0){
+                verificationStatus =  
+                        doCombinations(rx, ry, len, pointsPerLagrange, 
                                     indices, 0, 0, 
                                     1, currentHamming, 0); // Only run Hamming's combinations.
-            }else{
-                return verificationStatus;
             }
         }
+    }else{
+        // Never mind the Hamming.
+        verificationStatus = doCombinations(rx, ry, len, pointsPerLagrange, indices, 0, 0, 0, 0, 0);
     }
- 
-    // Nevermind the Hamming.
-    return doCombinations(rx, ry, len, pointsPerLagrange, indices, 0, 0, 0, 0, 0);
+
+    // If the verification failed, check if some of the extra points could be points trimmed that
+    // exceeded the 255 value set by the byte limit. Remember that extra points are in [0, MODULUS).
+    // Example: 256 trimmed as a byte would be 0, so a 0 on the extra points could be 0 or a 256 too
+    // if MODULUS was greater than or equal to 255!
+    for(int i = len-EXTRA_POINTS; (verificationStatus < 0) && (i < len); i++){
+        while((verificationStatus < 0) && (ry[i]+256 < MODULUS)){
+            ry[i] += 256;
+            verificationStatus = verifyMessage(rx, ry, len, pointsPerLagrange);
+        }
+    }
+
+    return verificationStatus;
 }
 
 void addErrorCorrectionFields(int* x, int* y, int numPoints, int* xx, int* yy){
@@ -880,7 +901,12 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
 
         int success = verifyMessage(x, y, dataLen, RS_MAX_POLY_DEGREE-EXTRA_POINTS);
         if(success < 0){
-            printf("\nError fixing the file at: 0x%08lX, correction: 0x%08lX!\n", filePosition, correctionPosition);
+            printf("\nError fixing the file at: 0x%08lX. Correction file position: 0x%08lX.\nData: ", filePosition, correctionPosition);
+            for(int i = 0; i <= dataLen; i++){
+                if(i==dataLen-EXTRA_POINTS) printf(" - ");
+                printf("%02X", y[i]);
+            }
+            printf("\n");
         }
 
         for(int j = 0; j < RS_MAX_POLY_DEGREE-EXTRA_POINTS; j++){
@@ -912,9 +938,10 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
  * MAIN
  **************************************************************************************************/
 int main(){
-    testBench(10000);
+    // testBench(10000);
     // testCase();
-    // createRecuperationFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin");
-    // recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin",
-        // "C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
+
+    createRecuperationFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin");
+    recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\corrupted.bin",
+        "C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
 }
