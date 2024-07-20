@@ -924,9 +924,9 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
  **************************************************************************************************/
 int main(){
     srand(time(0));
-    // testBench(1000);
+    testBench(100000);
     // testCase();
     // createRecuperationFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin");
-    recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin",
-        "C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
+    // recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin",
+        // "C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
 }
