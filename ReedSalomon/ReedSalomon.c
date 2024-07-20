@@ -16,25 +16,18 @@
 int EEPROM_NOT_CORRUPTED = 1;
 
 /***************************************************************************************************
+ * ALGORITHM SELECTION
+ **************************************************************************************************/
+// #define MOD_USE_NAIVE
+#define MOD_USE_EUCLID
+// #define MOD_USE_ARRAY
+
+/***************************************************************************************************
  * BASIC MATH
  **************************************************************************************************/
 int max(int a, int b){
     if(a >= b) return a;
     else return b;
-}
-
-int gcd(int a, int b){
-    while(b != 0){
-        int temp = a;
-        a = b;
-        b = temp % b;
-    }
-    return a;
-}
-
-int mod(int x){
-    while(x < 0)    x += MODULUS;
-    return x % MODULUS;
 }
 
 int parity(int x){
@@ -74,90 +67,95 @@ unsigned short calculateCRC(unsigned char *data, size_t length) {
 }
 
 /***************************************************************************************************
- * FRACTION
+ * MOD INTEGER
  **************************************************************************************************/
-typedef struct{
-    int a, b;
-} Fraction;
+typedef int ModInt;
 
-const Fraction ZERO = {0,1};
-const Fraction ONE  = {1,1};
+const ModInt ZERO = 0;
+const ModInt ONE  = 1;
 
-// Instead of doing it by brute force, use the Extended Euclidean algorithm?
-Fraction modFrac(Fraction x){
-    if(x.b == 1){
-        x.a = mod(x.a);
-        return x;
+ModInt mod(ModInt x){
+    if(x < 0){
+        while(x < 0)    x += MODULUS;
+    }else if(x >= MODULUS){
+        x %= MODULUS;
+    }
+    return x;
+}
+
+ModInt modFrac(ModInt a, ModInt b){
+    if(b == 1){
+        return mod(a);
     }
 
     // The denominator is NOT coprime with the modulus, the inverse does not exist.
-    if(x.b % MODULUS == 0){
-        x.a = -1;
-        x.b = 1;
-        return x;
+    if(b % MODULUS == 0){
+        return -1;
     }
 
+    int n = 0;
+#ifdef MOD_USE_NAIVE
+    // Modulus of a fraction: Brute force approach.
     // The inverse exists and needs to be found:
     // n === 1/b mod p, bn === 1 mod p  <-- Find n!
-    int n = 2; // No need to check 1 nor 0.
+    n = 2; // No need to check 1 nor 0.
     for(; n < MODULUS; n++){
-        if((x.b*n)%MODULUS == 1) break;
+        if((b*n)%MODULUS == 1) break;
     }
 
     // The inverse couldn't be found.
     if(n == MODULUS){
-        x.a = -1;
-        x.b = 1;
-        return x;
+        return -1;
     }
+#endif
 
-    x.a = mod(x.a*n);
-    x.b = 1;
-    return x;
-}
+#ifdef MOD_USE_EUCLID
+    // Modulus of a fraction: Extended Euclid algorithm. 10% faster than naive!
+    int A = b, M = MODULUS;
+    int y = 0, x = 1;
+ 
+    if (M == 1)
+        return 0;
+ 
+    while (A > 1) {
+        // q is quotient
+        int q = A / M;
+        int t = M;
+ 
+        // m is remainder now, process same as Euclid's algo
+        M = A % M;
+        A = t;
+        t = y;
 
-Fraction reduceFrac(Fraction x){
-    if(x.b == 0){
-        printf("Dividing by zero!");
-        exit(-1);
+        // Update y and x
+        y = x - q * y;
+        x = t;
     }
-    // Already reduced.
-    if(x.b == 1)    return modFrac(x);
+ 
+    // Make x positive
+    if (x < 0)  x += MODULUS;
+    n = x;
+#endif
 
-    int commonDivisor = gcd(x.a, x.b);
-    x = (Fraction) {x.a/commonDivisor, x.b/commonDivisor};
-    if(x.b < 0){
-        x.b = -x.b;
-        x.a = -x.a;
-    }
+#ifdef MOD_USE_EUCLID
+    const unsigned char nResults[] = {0, 1, 129, 86, 193, 103, 43, 147, 225, 200, 180, 187, 150, 178, 202, 120, 241, 121, 100, 230, 90, 49, 222, 190, 75, 72, 89, 238, 101, 195, 60, 199, 249, 148, 189, 235, 50, 132, 115, 145, 45, 163, 153, 6, 111, 40, 95, 175, 166, 21, 36, 126, 173, 97, 119, 243, 179, 248, 226, 61, 30, 59, 228, 102, 253, 87, 74, 234, 223, 149, 246, 181, 25, 169, 66, 24, 186, 247, 201, 244, 151, 165, 210, 96, 205, 127, 3, 65, 184, 26, 20, 209, 176, 152, 216, 46, 83, 53, 139, 135, 18, 28, 63, 5, 215, 164, 177, 245, 188, 224, 250, 44, 218, 116, 124, 38, 113, 134, 159, 54, 15, 17, 158, 140, 114, 220, 51, 85, 255, 2, 172, 206, 37, 143, 117, 99, 240, 242, 203, 98, 123, 144, 219, 133, 141, 39, 213, 7, 33, 69, 12, 80, 93, 42, 252, 194, 229, 239, 122, 118, 204, 174, 211, 41, 105, 81, 48, 237, 231, 73, 192, 254, 130, 52, 161, 47, 92, 106, 13, 56, 10, 71, 233, 191, 88, 232, 76, 11, 108, 34, 23, 183, 170, 4, 155, 29, 198, 227, 196, 31, 9, 78, 14, 138, 160, 84, 131, 221, 236, 91, 82, 162, 217, 146, 251, 104, 94, 212, 112, 142, 125, 207, 22, 68, 109, 8, 58, 197, 62, 156, 19, 168, 185, 182, 67, 35, 208, 167, 27, 157, 136, 16, 137, 55, 79, 107, 70, 77, 57, 32, 110, 214, 154, 64, 171, 128};
+    n = nResults[b];
+#endif
 
-    return modFrac(x);
+    return mod(a*n);
 }
 
-Fraction sumFrac(Fraction x, Fraction y){
-    if(x.b == 1 && y.b == 1) return reduceFrac((Fraction) {x.a + y.a, 1});
-    return reduceFrac((Fraction){x.a*y.b + y.a*x.b, x.b*y.b});
+
+ModInt sumFrac(ModInt x, ModInt y){
+    return mod(x+y);
 }
 
-Fraction subsFrac(Fraction x, Fraction y){
-    if(x.b == 1 && y.b == 1) return reduceFrac((Fraction) {x.a - y.a, 1});
-    return reduceFrac((Fraction){x.a*y.b - y.a*x.b, x.b*y.b});
+ModInt subsFrac(ModInt x, ModInt y){
+    return mod(x-y);
 }
 
-Fraction multFrac(Fraction x, Fraction y){
-    if(x.b == 1 && y.b == 1) return reduceFrac((Fraction) {x.a * y.a, 1});
-    return reduceFrac((Fraction){x.a*y.a, x.b*y.b});
-}
-
-int equalFractions(Fraction x, Fraction y){
-    x = reduceFrac(x);
-    y = reduceFrac(y);
-    return (x.a == y.a) && (x.b == y.b);
-}
-
-void printFrac(Fraction x){
-    if(x.b == 1) printf("%d", x.a);
-    else printf("%d/%d", x.a, x.b);
+ModInt multFrac(ModInt x, ModInt y){
+    return mod(x*y);
 }
 
 /***************************************************************************************************
@@ -165,23 +163,23 @@ void printFrac(Fraction x){
  **************************************************************************************************/
 typedef struct{
     int degree;
-    Fraction coeffs[RS_MAX_POLY_DEGREE+1];
+    ModInt coeffs[RS_MAX_POLY_DEGREE+1];
 } Polynomial;
 
 const Polynomial POLY_ZERO = {
     .degree = 0,
-    .coeffs = {(Fraction){0,1}},
+    .coeffs = {0},
 };
 
 const Polynomial POLY_ONE = {
     .degree = 0,
-    .coeffs = {(Fraction){1,1}},
+    .coeffs = {1},
 };
 
 Polynomial createPoly(int* coeffs, int degree){
     Polynomial p = {.degree = degree};
     for(int i = 0; i <= degree; i++){
-        p.coeffs[i] = (Fraction){coeffs[i], 1};
+        p.coeffs[i] = coeffs[i];
     }
     return p;
 }
@@ -195,7 +193,7 @@ Polynomial createEmptyPoly(int degree){
 }
 
 Polynomial reducePoly(Polynomial p){
-    while(p.coeffs[p.degree].a == 0 && p.degree > 0){
+    while(p.coeffs[p.degree] == 0 && p.degree > 0){
         p.degree--;
     }
     return p;
@@ -222,7 +220,6 @@ Polynomial subsPoly(Polynomial p, Polynomial q){
     return reducePoly(r);
 }
 
-// Maybe implement Karatsuba algorithm if necessary?
 // This naive approach is O(n^2).
 Polynomial multPoly(Polynomial p, Polynomial q){
     Polynomial r = createEmptyPoly(p.degree + q.degree);
@@ -239,17 +236,14 @@ Polynomial multPoly(Polynomial p, Polynomial q){
     return reducePoly(r);
 }
 
-Polynomial multPolyByFrac(Polynomial p, Fraction a){
-    for(int i = 0; i <= p.degree; i++){
-        p.coeffs[i] = multFrac(p.coeffs[i], a);
-    }
-    return reducePoly(p);
+Polynomial multPolyByFrac(Polynomial p, ModInt a){
+    return multPoly(p, createPoly(&a, 0));
 }
 
 // Implementation of Horner's Method, O(n) instead of O(n^2).
 // p(x) = a + bx + cx^2 + dx^3 = a + x(b + c(x + dx))
-Fraction evaluatePoly(Polynomial p, Fraction x){
-    Fraction px = p.coeffs[p.degree];
+ModInt evaluatePoly(Polynomial p, ModInt x){
+    ModInt px = p.coeffs[p.degree];
     for(int i = p.degree-1; i >= 0; i--){
         px = sumFrac(p.coeffs[i], multFrac(px, x));
     }
@@ -257,12 +251,12 @@ Fraction evaluatePoly(Polynomial p, Fraction x){
 }
 
 void printPoly(Polynomial p){
-    printFrac(p.coeffs[0]);
+    printf("%d", p.coeffs[0]);
     if(p.degree == 0) return;
     
     for(int i = 1; i <= p.degree; i++){
         printf(" + ");
-        printFrac(p.coeffs[i]);
+        printf("%d", p.coeffs[i]);
         printf("*x");
         if(i != 1) printf("^%d ", i);
     }
@@ -283,12 +277,12 @@ Polynomial createSingleLagrangeInterp(int one, int* x, int count, int valueAtOne
 
         Polynomial zeroP = {
             .degree = 1,
-            .coeffs = {(Fraction){-x[i], 1},  ONE},
+            .coeffs = {-x[i],  ONE},
         };
         p = multPoly(p, zeroP);
     }
-    Fraction pEvalAtOne = evaluatePoly(p, (Fraction){one, 1});
-    Fraction pFactor = reduceFrac((Fraction){valueAtOne*pEvalAtOne.b, pEvalAtOne.a});
+    ModInt pEvalAtOne = evaluatePoly(p, one);
+    ModInt pFactor = modFrac(valueAtOne, pEvalAtOne);
     p = multPolyByFrac(p, pFactor);
     return p;
 }
@@ -318,7 +312,7 @@ int calculateHamming(int* x, int* y, int len){
  * ERROR CORRECTION ALGORITHM
  **************************************************************************************************/
 
-// 0 if NO error, 1 if corrected and -1 if imposible to correct.
+// 0 if NO error, 1 if corrected and -1 if impossible to correct.
 int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
     int pointsNotOk = 0;
     
@@ -339,14 +333,13 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
     while(i < len || j < (pointsPerLagrange-1)){
         if(rx[i] != rx[indices[j]]){
             // Found a value that it's not on indices.
-            Fraction eval = evaluatePoly(p, (Fraction){rx[i], 1});
-            eval = modFrac(eval);
-            if(eval.a == -1){   
-                // The result was a fraction that couldn't be inversed, therefore this function is
+            ModInt eval = evaluatePoly(p, rx[i]);
+            if(eval == -1){   
+                // The result was a fraction that couldn't be inverted, therefore this function is
                 // not valid.
                 return -1;
             }else{
-                int pointNotOK = eval.a != ry[i];
+                int pointNotOK = eval != ry[i];
                 
                 // If the EEPROM is OK and this comparator is saying that a point in EEPROM is wrong
                 // skip it, as this function isn't correct.
@@ -372,9 +365,7 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
 
     // Errors were found, but can be fixed by evaluating the polynomial.
     for(i = 0; i < len; i++){
-        Fraction eval = evaluatePoly(p, (Fraction){rx[i], 1});
-        eval = modFrac(eval);
-        ry[i] = eval.a;
+        ry[i] = evaluatePoly(p, rx[i]);
     }
 
     // If the EEPROM isn't corrupted, use the Hamming and CRC.
@@ -502,18 +493,15 @@ void addErrorCorrectionFields(int* x, int* y, int numPoints, int* xx, int* yy){
     for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
         xx[i] = i;
 
-        Fraction result = evaluatePoly(p, (Fraction){xx[i], 1});
-        result = modFrac(result);
+        yy[i] = evaluatePoly(p, xx[i]);
         
-        if(result.a == -1){
+        if(yy[i] == -1){
             printf("Error modding the following message:\n");
             for(int i = 0; i < numPoints; i++){
                 printf("x = %d  ->  y = %d\n", x[i], y[i]);
             }
             exit(-1);
         }
-        
-        yy[i] = result.a;
     }
 
     // Add Hamming code.
@@ -694,6 +682,7 @@ void printLoadingBar(long progress, long total) {
 }
 
 void testBench(int totalTests){
+    srand(time(0));
     printf("Points per sample: %d\n", RS_MAX_POLY_DEGREE-EXTRA_POINTS);
     printf("Number of errors: rand(%d, %d)\n", 1, EXTRA_POINTS);
     printf("################ TEST BEGIN ################\n");
@@ -751,7 +740,7 @@ void testBench(int totalTests){
  **************************************************************************************************/
 
 int testCase(){
-    int y[] = { 29,     18,     248,    166,    108,    217,    199,    9,      19,     180};
+    int y[] = { 29,     18,     248,    166};
     int numPoints = sizeof(y)/sizeof(int);
 
     int x[numPoints];
@@ -759,8 +748,8 @@ int testCase(){
         x[i] = i;
     }
 
-    int errX[] = {4,8};
-    int errY[] = {76,34};
+    int errX[] = {1};
+    int errY[] = {76};
     int numErrors = sizeof(errX)/sizeof(int);
 
     return runSimulation(x, y, numPoints, errX, errY, numErrors);
@@ -891,7 +880,7 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
 
         int success = verifyMessage(x, y, dataLen, RS_MAX_POLY_DEGREE-EXTRA_POINTS);
         if(success < 0){
-            printf("\nError fixing the file at: 0x%08X, correction: 0x%08X!\n", filePosition, correctionPosition);
+            printf("\nError fixing the file at: 0x%08lX, correction: 0x%08lX!\n", filePosition, correctionPosition);
         }
 
         for(int j = 0; j < RS_MAX_POLY_DEGREE-EXTRA_POINTS; j++){
@@ -923,8 +912,7 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
  * MAIN
  **************************************************************************************************/
 int main(){
-    srand(time(0));
-    testBench(100000);
+    testBench(10000);
     // testCase();
     // createRecuperationFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin");
     // recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin",
