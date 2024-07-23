@@ -16,13 +16,13 @@
  * BASIC MATH
  **************************************************************************************************/
 
-int max(int a, int b){
+inline int max(int a, int b){
     if(a >= b) return a;
     else return b;
 }
 
 // Calculates the parity of the number of bits of x.
-int parity(int x){
+inline int parity(int x){
     int y = x ^ (x >> 1);
     y     = y ^ (y >> 2);
     y     = y ^ (y >> 4);
@@ -31,7 +31,7 @@ int parity(int x){
     return y & 1;
 }
 
-int arrayParity(int* x, int len){
+inline int arrayParity(int* x, int len){
     int par = 0;
     for(int i = 0; i < len; i++){
         par ^= parity(x[i]);
@@ -66,13 +66,16 @@ unsigned short calculateCRC(unsigned char *data, size_t length) {
 const ModInt ZERO = 0;
 const ModInt ONE  = 1;
 
-ModInt mod(ModInt x){
-    if(x < 0){
-        while(x < 0)    x += MODULUS;
-    }else if(x >= MODULUS){
-        x %= MODULUS;
-    }
-    return x;
+inline ModInt mod(ModInt x){
+    return x%MODULUS;
+}
+
+inline ModInt sumModInt(ModInt x, ModInt y){
+    return mod(x+y);
+}
+
+inline ModInt multModInt(ModInt x, ModInt y){
+    return mod(x*y);
 }
 
 // Calculates the mod of the fraction a/b. For that, this function has to obtain the multiplicative
@@ -87,7 +90,7 @@ ModInt modFrac(ModInt a, ModInt b){
         return -1;
     }
 
-    int n = 0;
+    ModInt n = 0;
 #ifdef MOD_USE_NAIVE
     // Modulus of a fraction: Brute force approach.
     // The inverse exists and needs to be found:
@@ -136,15 +139,7 @@ ModInt modFrac(ModInt a, ModInt b){
     const unsigned char nResults[] = {0, 1, 129, 86, 193, 103, 43, 147, 225, 200, 180, 187, 150, 178, 202, 120, 241, 121, 100, 230, 90, 49, 222, 190, 75, 72, 89, 238, 101, 195, 60, 199, 249, 148, 189, 235, 50, 132, 115, 145, 45, 163, 153, 6, 111, 40, 95, 175, 166, 21, 36, 126, 173, 97, 119, 243, 179, 248, 226, 61, 30, 59, 228, 102, 253, 87, 74, 234, 223, 149, 246, 181, 25, 169, 66, 24, 186, 247, 201, 244, 151, 165, 210, 96, 205, 127, 3, 65, 184, 26, 20, 209, 176, 152, 216, 46, 83, 53, 139, 135, 18, 28, 63, 5, 215, 164, 177, 245, 188, 224, 250, 44, 218, 116, 124, 38, 113, 134, 159, 54, 15, 17, 158, 140, 114, 220, 51, 85, 255, 2, 172, 206, 37, 143, 117, 99, 240, 242, 203, 98, 123, 144, 219, 133, 141, 39, 213, 7, 33, 69, 12, 80, 93, 42, 252, 194, 229, 239, 122, 118, 204, 174, 211, 41, 105, 81, 48, 237, 231, 73, 192, 254, 130, 52, 161, 47, 92, 106, 13, 56, 10, 71, 233, 191, 88, 232, 76, 11, 108, 34, 23, 183, 170, 4, 155, 29, 198, 227, 196, 31, 9, 78, 14, 138, 160, 84, 131, 221, 236, 91, 82, 162, 217, 146, 251, 104, 94, 212, 112, 142, 125, 207, 22, 68, 109, 8, 58, 197, 62, 156, 19, 168, 185, 182, 67, 35, 208, 167, 27, 157, 136, 16, 137, 55, 79, 107, 70, 77, 57, 32, 110, 214, 154, 64, 171, 128, 48};
     n = nResults[b];
 #endif
-    return mod(a*n);
-}
-
-ModInt sumModInt(ModInt x, ModInt y){
-    return mod(x+y);
-}
-
-ModInt multModInt(ModInt x, ModInt y){
-    return mod(x*y);
+    return multModInt(a,n);
 }
 
 /***************************************************************************************************
@@ -186,7 +181,7 @@ void reducePoly(Polynomial* p){
     }
 }
 
-void sumPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
+inline void sumPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
     Polynomial newP;
     if(p == pout){
         memcpy(&newP, p, sizeof(Polynomial));
@@ -204,7 +199,7 @@ void sumPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
 }
 
 // This naive approach is O(n^2).
-void multPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
+inline void multPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
     Polynomial newP;
     if(p == pout){
         memcpy(&newP, p, sizeof(Polynomial));
@@ -229,7 +224,7 @@ void multPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
     reducePoly(pout);
 }
 
-void multPolyByFrac(Polynomial* p, ModInt a, Polynomial* pout){
+inline void multPolyByFrac(Polynomial* p, ModInt a, Polynomial* pout){
     Polynomial polyA = {
         .degree = 0,
         .coeffs = {a},
@@ -266,7 +261,7 @@ void printPoly(Polynomial* p){
 /***************************************************************************************************
  * \brief Calculates a function which is zero at all [x] except at [one], where it is [valueAtOne].
  **************************************************************************************************/
-void createSingleLagrangeInterp(int one, int* x, int count, int valueAtOne, Polynomial* pout){
+inline void createSingleLagrangeInterp(int one, int* x, int count, int valueAtOne, Polynomial* pout){
     *pout = POLY_ONE;
     Polynomial zeroP = {
         .degree = 1,
@@ -276,7 +271,9 @@ void createSingleLagrangeInterp(int one, int* x, int count, int valueAtOne, Poly
         // Skip the one.
         if(x[i] == one) continue;
 
-        zeroP.coeffs[0] = -x[i];
+        // Add a zero to the polynomial: (x - xi) mod MODULUS === (x + MODULUS - xi) mod MODULUS,
+        // supposing xi >= -MODULUS. This allows us to use unsigned short as ModInt in mod 257!
+        zeroP.coeffs[0] = MODULUS-x[i]; 
         zeroP.coeffs[1] = ONE;
 
         multPoly(pout, &zeroP, pout);

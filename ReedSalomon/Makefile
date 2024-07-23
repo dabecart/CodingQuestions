@@ -2,7 +2,7 @@ CC = gcc
 TARGET = reed
 
 # Compilation flags
-FLAGS = -O2 -flto#-pg
+FLAGS = -O2 -flto #-fsanitize=undefined #-pg
 
 # Define the source files and the object files
 SRC = $(wildcard src/*.c src/*/*.c)

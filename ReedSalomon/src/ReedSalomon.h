@@ -19,8 +19,9 @@
 #include "CommonDefines.h"
 
 // You can specify the type of the numbers used by the algorithm. This will be related to MODULUS as
-// the type you select has to be able to represent at least (MODULUS-1)^2.
-typedef int ModInt;
+// the type you select has to be able to represent at least (MODULUS-1)^2. There are no negative 
+// values, so unsigned values can be used.
+typedef unsigned short ModInt;
 
 /***************************************************************************************************
  * ALGORITHM SELECTION
