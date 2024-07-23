@@ -1,7 +1,15 @@
 #!/bin/bash
 
+# This shell file is used to compare up to three BINARY files by first converting them to .hex files
+# so that it can later be easily compared using vimdiff.
+
 if [ "$#" -lt 2 ]; then
     echo "This function needs at least two files as arguments!"
+    exit -1
+fi
+
+if [ "$#" -gt 3 ]; then
+    echo "This function accepts a maximum of three files as arguments!"
     exit -1
 fi
 
@@ -25,8 +33,9 @@ if [ "$#" -eq 3 ]; then
 
     xxd -ps -c 10 "$3" > "$3.hex"
     vimdiff "$1.hex" "$2.hex" "$3.hex"
-    rm "$1.hex" "$2.hex" "$3.hex"
+    rm -f "$3.hex"
 else
     vimdiff "$1.hex" "$2.hex"
-    rm "$1.hex" "$2.hex"
 fi
+
+rm -f "$1.hex" "$2.hex"
