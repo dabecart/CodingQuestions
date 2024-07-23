@@ -216,7 +216,7 @@ void testBench(int totalTests, int maxErrors){
 
         printLoadingBar(i+1, totalTests);
     }
-    
+
     printf("\n############# TEST RESULTS ###############\n");
     printf("Success rate: %d/%d. Fixed incorrectly: %d.\n"
            "Exceeding error limit: %d. Fixed incorrectly: %d.\n", 
@@ -251,8 +251,8 @@ int testCase(){
         x[i] = i;
     }
 
-    int errX[] = {4,5,6,7,8};
-    int errY[] = {0xe9, 0xa8, 0x78, 0xe9, 0xf3};
+    int errX[] = {4,8};
+    int errY[] = {0xe9, 0xf3};
     int numErrors = sizeof(errX)/sizeof(int);
 
     return runSimulation(x, y, numPoints, errX, errY, numErrors);

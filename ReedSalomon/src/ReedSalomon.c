@@ -166,77 +166,94 @@ const Polynomial POLY_ONE = {
     .coeffs = {1},
 };
 
-Polynomial createPoly(int* coeffs, int degree){
-    Polynomial p = {.degree = degree};
+void createPoly(int* coeffs, int degree, Polynomial* pout){
+    pout->degree = degree;
     for(int i = 0; i <= degree; i++){
-        p.coeffs[i] = coeffs[i];
+        pout->coeffs[i] = coeffs[i];
     }
-    return p;
 }
 
-Polynomial createEmptyPoly(int degree){
-    Polynomial p = {.degree = degree};
+void createEmptyPoly(int degree, Polynomial* pout){
+    pout->degree = degree;
     for(int i = 0; i <= degree; i++){ 
-        p.coeffs[i] = ZERO;
+        pout->coeffs[i] = ZERO;
     }
-    return p;
 }
 
-Polynomial reducePoly(Polynomial p){
-    while(p.coeffs[p.degree] == 0 && p.degree > 0){
-        p.degree--;
+void reducePoly(Polynomial* p){
+    while(p->coeffs[p->degree] == 0 && p->degree > 0){
+        p->degree--;
     }
-    return p;
 }
 
-Polynomial sumPoly(Polynomial p, Polynomial q){
-    Polynomial r = {};
-    r.degree = max(p.degree, q.degree);
-    for(int i = 0; i <= r.degree; i++){
-        r.coeffs[i] = ZERO;
-        if(i <= p.degree) r.coeffs[i] = sumModInt(r.coeffs[i], p.coeffs[i]);
-        if(i <= q.degree) r.coeffs[i] = sumModInt(r.coeffs[i], q.coeffs[i]);
+void sumPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
+    Polynomial newP;
+    if(p == pout){
+        memcpy(&newP, p, sizeof(Polynomial));
+        p = &newP;
+        *pout = POLY_ZERO;
     }
-    return reducePoly(r);
+
+    pout->degree = max(p->degree, q->degree);
+    for(int i = 0; i <= pout->degree; i++){
+        pout->coeffs[i] = ZERO;
+        if(i <= p->degree) pout->coeffs[i] = sumModInt(pout->coeffs[i], p->coeffs[i]);
+        if(i <= q->degree) pout->coeffs[i] = sumModInt(pout->coeffs[i], q->coeffs[i]);
+    }
+    reducePoly(pout);
 }
 
 // This naive approach is O(n^2).
-Polynomial multPoly(Polynomial p, Polynomial q){
-    Polynomial r = createEmptyPoly(p.degree + q.degree);
-    if(r.degree > RS_MAX_POLY_DEGREE){
+void multPoly(Polynomial* p, Polynomial* q, Polynomial* pout){
+    Polynomial newP;
+    if(p == pout){
+        memcpy(&newP, p, sizeof(Polynomial));
+        p = &newP;
+        *pout = POLY_ZERO;
+    }
+
+    pout->degree = p->degree + q->degree;
+    if(pout->degree > RS_MAX_POLY_DEGREE){
         printf("Degree overflow\n");
         exit(-1);
     }
 
-    for(int i = 0; i <= p.degree; i++){
-        for(int j = 0; j <= q.degree; j++){
-            r.coeffs[i+j] = sumModInt(r.coeffs[i+j], multModInt(p.coeffs[i], q.coeffs[j]));
+    for(int i = 0; i <= p->degree; i++){
+        for(int j = 0; j <= q->degree; j++){
+            pout->coeffs[i+j] = sumModInt(
+                                    pout->coeffs[i+j], 
+                                    multModInt(p->coeffs[i], q->coeffs[j])
+                                );
         }
     }
-    return reducePoly(r);
+    reducePoly(pout);
 }
 
-Polynomial multPolyByFrac(Polynomial p, ModInt a){
-    return multPoly(p, createPoly(&a, 0));
+void multPolyByFrac(Polynomial* p, ModInt a, Polynomial* pout){
+    Polynomial polyA = {
+        .degree = 0,
+        .coeffs = {a},
+    };
+    multPoly(p, &polyA, pout);
 }
 
 // Implementation of Horner's Method, O(n) instead of O(n^2).
 // p(x) = a + bx + cx^2 + dx^3 = a + x(b + c(x + dx))
-ModInt evaluatePoly(Polynomial p, ModInt x){
-    ModInt px = p.coeffs[p.degree];
-    for(int i = p.degree-1; i >= 0; i--){
-        px = sumModInt(p.coeffs[i], multModInt(px, x));
+ModInt evaluatePoly(Polynomial* p, ModInt x){
+    ModInt px = p->coeffs[p->degree];
+    for(int i = p->degree-1; i >= 0; i--){
+        px = sumModInt(p->coeffs[i], multModInt(px, x));
     }
     return px;
 }
 
-void printPoly(Polynomial p){
-    printf("%d", p.coeffs[0]);
-    if(p.degree == 0) return;
+void printPoly(Polynomial* p){
+    printf("%d", p->coeffs[0]);
+    if(p->degree == 0) return;
     
-    for(int i = 1; i <= p.degree; i++){
+    for(int i = 1; i <= p->degree; i++){
         printf(" + ");
-        printf("%d", p.coeffs[i]);
+        printf("%d", p->coeffs[i]);
         printf("*x");
         if(i != 1) printf("^%d ", i);
     }
@@ -249,30 +266,33 @@ void printPoly(Polynomial p){
 /***************************************************************************************************
  * \brief Calculates a function which is zero at all [x] except at [one], where it is [valueAtOne].
  **************************************************************************************************/
-Polynomial createSingleLagrangeInterp(int one, int* x, int count, int valueAtOne){
-    Polynomial p = POLY_ONE;
+void createSingleLagrangeInterp(int one, int* x, int count, int valueAtOne, Polynomial* pout){
+    *pout = POLY_ONE;
+    Polynomial zeroP = {
+        .degree = 1,
+    };
+
     for(int i = 0; i < count; i++){
         // Skip the one.
         if(x[i] == one) continue;
 
-        Polynomial zeroP = {
-            .degree = 1,
-            .coeffs = {-x[i],  ONE},
-        };
-        p = multPoly(p, zeroP);
+        zeroP.coeffs[0] = -x[i];
+        zeroP.coeffs[1] = ONE;
+
+        multPoly(pout, &zeroP, pout);
     }
-    ModInt pEvalAtOne = evaluatePoly(p, one);
-    ModInt pFactor = modFrac(valueAtOne, pEvalAtOne);
-    p = multPolyByFrac(p, pFactor);
-    return p;
+
+    ModInt pFactor = modFrac(valueAtOne, evaluatePoly(pout, one));
+    multPolyByFrac(pout, pFactor, pout);
 }
 
-Polynomial createLagrangeInterp(int* x, int* y, int count){
-    Polynomial p = POLY_ZERO;
+void createLagrangeInterp(int* x, int* y, int count, Polynomial* pout){
+    *pout = POLY_ZERO;
+    Polynomial singleLag;
     for(int i = 0; i < count; i++){
-        p = sumPoly(p, createSingleLagrangeInterp(x[i], x, count, y[i]));
+        createSingleLagrangeInterp(x[i], x, count, y[i], &singleLag);
+        sumPoly(pout, &singleLag, pout);
     }
-    return p;
 }
 
 /***************************************************************************************************
@@ -305,7 +325,8 @@ AlgorithmReturn checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, in
     }
     // printf("\n");
 
-    Polynomial p = createLagrangeInterp(x, y, pointsPerLagrange);
+    Polynomial p;
+    createLagrangeInterp(x, y, pointsPerLagrange, &p);
 
     // Get the points from rx that aren't in indices, using the fact that they are ordered from 
     // lesser to greater to reduce computation time from O(n^2) to O(n).
@@ -313,7 +334,7 @@ AlgorithmReturn checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, in
     while(i < len || j < (pointsPerLagrange-1)){
         if(rx[i] != rx[indices[j]]){
             // Found a value that it's not on indices.
-            ModInt eval = evaluatePoly(p, rx[i]);
+            ModInt eval = evaluatePoly(&p, rx[i]);
             if(eval == -1){   
                 // The result was a fraction that couldn't be inverted, therefore this function is
                 // not valid.
@@ -345,7 +366,7 @@ AlgorithmReturn checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, in
 
     // Errors were found, but can be fixed by evaluating the polynomial.
     for(i = 0; i < len; i++){
-        ry[i] = evaluatePoly(p, rx[i]);
+        ry[i] = evaluatePoly(&p, rx[i]);
     }
 
     // If the EEPROM isn't corrupted, use the Hamming and CRC to double verify.
@@ -488,12 +509,14 @@ void addErrorCorrectionFields(int* x, int* y, int numPoints, int* xx, int* yy){
         exit(-1);
     }
 
-    Polynomial p = createLagrangeInterp(x, y, numPoints);
+    Polynomial p;
+    createLagrangeInterp(x, y, numPoints, &p);
 
+    // TODO: Modify this so it starts from numPoints instead of 0.
     for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
         xx[i] = i;
 
-        yy[i] = evaluatePoly(p, xx[i]);
+        yy[i] = evaluatePoly(&p, xx[i]);
         
         if(yy[i] == -1){
             printf("Error modding the following message:\n");
