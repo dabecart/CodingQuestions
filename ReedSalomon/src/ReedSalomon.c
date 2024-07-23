@@ -139,13 +139,8 @@ ModInt modFrac(ModInt a, ModInt b){
     return mod(a*n);
 }
 
-
 ModInt sumModInt(ModInt x, ModInt y){
     return mod(x+y);
-}
-
-ModInt subsModInt(ModInt x, ModInt y){
-    return mod(x-y);
 }
 
 ModInt multModInt(ModInt x, ModInt y){
@@ -181,7 +176,7 @@ Polynomial createPoly(int* coeffs, int degree){
 
 Polynomial createEmptyPoly(int degree){
     Polynomial p = {.degree = degree};
-    for(int i = 0; i <= degree; i++){
+    for(int i = 0; i <= degree; i++){ 
         p.coeffs[i] = ZERO;
     }
     return p;
@@ -201,16 +196,6 @@ Polynomial sumPoly(Polynomial p, Polynomial q){
         r.coeffs[i] = ZERO;
         if(i <= p.degree) r.coeffs[i] = sumModInt(r.coeffs[i], p.coeffs[i]);
         if(i <= q.degree) r.coeffs[i] = sumModInt(r.coeffs[i], q.coeffs[i]);
-    }
-    return reducePoly(r);
-}
-
-Polynomial subsPoly(Polynomial p, Polynomial q){
-    Polynomial r = {.degree = max(p.degree, q.degree)};
-    for(int i = 0; i <= r.degree; i++){
-        r.coeffs[i] = ZERO;
-        if(i <= p.degree) r.coeffs[i] = sumModInt(r.coeffs[i], p.coeffs[i]);
-        if(i <= q.degree) r.coeffs[i] = subsModInt(r.coeffs[i], q.coeffs[i]);
     }
     return reducePoly(r);
 }

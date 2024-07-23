@@ -1,6 +1,9 @@
 CC = gcc
 TARGET = reed
 
+# Compilation flags
+FLAGS = -O2 -flto#-pg
+
 # Define the source files and the object files
 SRC = $(wildcard src/*.c src/*/*.c)
 OBJ = $(patsubst %.c, build/%.o, $(SRC))
@@ -10,12 +13,12 @@ all: $(TARGET)
 
 # Rule to link the object files and create the executable
 $(TARGET): $(OBJ)
-	$(CC) -o $(TARGET) $(OBJ)
+	$(CC) $(FLAGS) -o $(TARGET) $(OBJ)
 
 # Rule to compile the source files into object files
 build/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) -c $< -o $@
+	$(CC) $(FLAGS) -c $< -o $@
 
 # Rule to clean up files
 clean:
