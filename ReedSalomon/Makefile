@@ -20,7 +20,7 @@ $(TARGET): $(OBJ)
 # Rule to clean up the compiled files
 clean:
 	rm -f $(TARGET) $(OBJ)
-	rm errorRec.bin fixed.bin ../corrupted.bin ../original.bin
+	rm -f errorRec.bin fixed.bin corrupted.bin original.bin
 
 # PHONY targets to avoid conflicts with files named 'all' or 'clean'
 .PHONY: all clean

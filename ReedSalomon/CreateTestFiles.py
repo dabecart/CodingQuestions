@@ -47,7 +47,7 @@ if __name__ == "__main__":
     file_size = 1020  # 1 kB
 
     burst_error_params = (0, 100, 20)  # (number of bursts, mean length, std deviation of burst length)
-    random_error_params = (100)  # (number of random errors)
+    random_error_params = (60)  # (number of random errors)
 
     # Generate the original random binary file
     generate_random_binary_file(original_file, file_size)

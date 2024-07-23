@@ -26,9 +26,45 @@ int EEPROM_NOT_CORRUPTED = 1;
 /***************************************************************************************************
  * ALGORITHM SELECTION
  **************************************************************************************************/
+
+// Different algorithms to calculate the module of a fraction.
 // #define MOD_USE_NAIVE
-#define MOD_USE_EUCLID
-// #define MOD_USE_ARRAY
+// #define MOD_USE_EUCLID
+#define MOD_USE_ARRAY
+
+// Print all inputs that couldn't be fixed.
+#define PRINT_NON_FIXABLE_INPUTS 0
+
+// Print all inputs that were fixed incorrectly.
+#define PRINT_INCORRECTLY_FIXED_INPUTS 0
+
+/***************************************************************************************************
+ * DEFINES
+ **************************************************************************************************/
+typedef enum{
+    // When the algorithm fixes the message incorrectly and it had more errors than the maximum that
+    // the algorithm can detect.
+    FIXED_INCORRECTLY_EXCEEDS_NUMBER_OF_ERRORS = -4,
+
+    // When the number of errors added to the message exceeds the maximum detectable by the 
+    // algorithm.
+    EXCEEDS_NUMBER_OF_ERRORS = -3,  
+
+    // Message was fixed incorrectly (the algorithm thought it was OK but when contrasting it with 
+    // the original message failed).
+    FIXED_INCORRECTLY = -2,
+    
+    // Message couldn't be fixed.
+    COULDNT_BE_FIXED = -1,
+
+    UNDEFINED = 0,
+    
+    // Message is fine.
+    WITHOUT_ERRORS = 1,
+
+    // Message had errors, but they were fixed.
+    FIXED_OK = 2,
+} AlgorithmReturn;
 
 /***************************************************************************************************
  * BASIC MATH
@@ -145,8 +181,9 @@ ModInt modFrac(ModInt a, ModInt b){
     n = x;
 #endif
 
-#ifdef MOD_USE_EUCLID
-    const unsigned char nResults[] = {0, 1, 129, 86, 193, 103, 43, 147, 225, 200, 180, 187, 150, 178, 202, 120, 241, 121, 100, 230, 90, 49, 222, 190, 75, 72, 89, 238, 101, 195, 60, 199, 249, 148, 189, 235, 50, 132, 115, 145, 45, 163, 153, 6, 111, 40, 95, 175, 166, 21, 36, 126, 173, 97, 119, 243, 179, 248, 226, 61, 30, 59, 228, 102, 253, 87, 74, 234, 223, 149, 246, 181, 25, 169, 66, 24, 186, 247, 201, 244, 151, 165, 210, 96, 205, 127, 3, 65, 184, 26, 20, 209, 176, 152, 216, 46, 83, 53, 139, 135, 18, 28, 63, 5, 215, 164, 177, 245, 188, 224, 250, 44, 218, 116, 124, 38, 113, 134, 159, 54, 15, 17, 158, 140, 114, 220, 51, 85, 255, 2, 172, 206, 37, 143, 117, 99, 240, 242, 203, 98, 123, 144, 219, 133, 141, 39, 213, 7, 33, 69, 12, 80, 93, 42, 252, 194, 229, 239, 122, 118, 204, 174, 211, 41, 105, 81, 48, 237, 231, 73, 192, 254, 130, 52, 161, 47, 92, 106, 13, 56, 10, 71, 233, 191, 88, 232, 76, 11, 108, 34, 23, 183, 170, 4, 155, 29, 198, 227, 196, 31, 9, 78, 14, 138, 160, 84, 131, 221, 236, 91, 82, 162, 217, 146, 251, 104, 94, 212, 112, 142, 125, 207, 22, 68, 109, 8, 58, 197, 62, 156, 19, 168, 185, 182, 67, 35, 208, 167, 27, 157, 136, 16, 137, 55, 79, 107, 70, 77, 57, 32, 110, 214, 154, 64, 171, 128};
+#ifdef MOD_USE_ARRAY
+    // Index 0 is not valid.
+    const unsigned char nResults[] = {0, 1, 129, 86, 193, 103, 43, 147, 225, 200, 180, 187, 150, 178, 202, 120, 241, 121, 100, 230, 90, 49, 222, 190, 75, 72, 89, 238, 101, 195, 60, 199, 249, 148, 189, 235, 50, 132, 115, 145, 45, 163, 153, 6, 111, 40, 95, 175, 166, 21, 36, 126, 173, 97, 119, 243, 179, 248, 226, 61, 30, 59, 228, 102, 253, 87, 74, 234, 223, 149, 246, 181, 25, 169, 66, 24, 186, 247, 201, 244, 151, 165, 210, 96, 205, 127, 3, 65, 184, 26, 20, 209, 176, 152, 216, 46, 83, 53, 139, 135, 18, 28, 63, 5, 215, 164, 177, 245, 188, 224, 250, 44, 218, 116, 124, 38, 113, 134, 159, 54, 15, 17, 158, 140, 114, 220, 51, 85, 255, 2, 172, 206, 37, 143, 117, 99, 240, 242, 203, 98, 123, 144, 219, 133, 141, 39, 213, 7, 33, 69, 12, 80, 93, 42, 252, 194, 229, 239, 122, 118, 204, 174, 211, 41, 105, 81, 48, 237, 231, 73, 192, 254, 130, 52, 161, 47, 92, 106, 13, 56, 10, 71, 233, 191, 88, 232, 76, 11, 108, 34, 23, 183, 170, 4, 155, 29, 198, 227, 196, 31, 9, 78, 14, 138, 160, 84, 131, 221, 236, 91, 82, 162, 217, 146, 251, 104, 94, 212, 112, 142, 125, 207, 22, 68, 109, 8, 58, 197, 62, 156, 19, 168, 185, 182, 67, 35, 208, 167, 27, 157, 136, 16, 137, 55, 79, 107, 70, 77, 57, 32, 110, 214, 154, 64, 171, 128, 48};
     n = nResults[b];
 #endif
 
@@ -321,7 +358,7 @@ int calculateHamming(int* x, int* y, int len){
  **************************************************************************************************/
 
 // 0 if NO error, 1 if corrected and -1 if impossible to correct.
-int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
+AlgorithmReturn checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
     int pointsNotOk = 0;
     
     int x[pointsPerLagrange];
@@ -345,14 +382,14 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
             if(eval == -1){   
                 // The result was a fraction that couldn't be inverted, therefore this function is
                 // not valid.
-                return -1;
+                return COULDNT_BE_FIXED;
             }else{
                 int pointNotOK = eval != ry[i];
                 
                 // If the EEPROM is OK and this comparator is saying that a point in EEPROM is wrong
                 // skip it, as this function isn't correct.
                 if(EEPROM_NOT_CORRUPTED && pointNotOK && i >= (len - EXTRA_POINTS)){
-                    return -1;
+                    return COULDNT_BE_FIXED;
                 }
                 pointsNotOk += pointNotOK; 
             }
@@ -363,10 +400,10 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
     }
 
     // There are too much errors to be fixed.
-    if(pointsNotOk >= EXTRA_POINTS)    return -1;
+    if(pointsNotOk >= EXTRA_POINTS)    return COULDNT_BE_FIXED;
     
     // No errors found!
-    if(pointsNotOk == 0)               return 0;
+    if(pointsNotOk == 0)               return WITHOUT_ERRORS;
 
     int tempSave[len];
     memcpy(tempSave, ry, len*sizeof(int));
@@ -376,21 +413,20 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
         ry[i] = evaluatePoly(p, rx[i]);
     }
 
-    // If the EEPROM isn't corrupted, use the Hamming and CRC.
+    // If the EEPROM isn't corrupted, use the Hamming and CRC to double verify.
     if(EEPROM_NOT_CORRUPTED){
         // Check the Hamming. The Hamming is sent after the EXTRA_POINTS in the array ry.
         // If the message is the same, when XORing the Hamming, it should return 0.
         int newHamming = calculateHamming(rx,ry, len);
         int crc = calculateCRC((unsigned char*) ry, len*sizeof(int)) & 0xF0;
-        if((newHamming | crc) == ry[len]){
-            return 1;
+        if((newHamming | crc) != ry[len]){
+            // Hamming wasn't correct, restore the points.
+            memcpy(ry, tempSave, len*sizeof(int));
+            return COULDNT_BE_FIXED;
         }
-
-        // Restore the points, Hamming wasn't correct.
-        memcpy(ry, tempSave, len*sizeof(int));
-        return -1;
     }
-    return 1;
+
+    return FIXED_OK;
 }
 
 /***************************************************************************************************
@@ -407,7 +443,7 @@ int checkPoints(int* rx, int* ry, int len, int pointsPerLagrange, int* indices){
  * @param hammingValue. The value of the Hamming, aka. on which position the wrong point is.
  * @param hammingIndex. Where in [indices] is the Hamming.
  **************************************************************************************************/
-int doCombinations(int* rx, int* ry, int len, int pointsPerLagrange, 
+AlgorithmReturn doCombinations(int* rx, int* ry, int len, int pointsPerLagrange, 
                    int* indices, int indexValue, int indexPosition,
                    int hammingBehaviour, int hammingValue, int hammingIndex){
     // If the number of points taken are enough, create the polynomial and check.
@@ -416,7 +452,7 @@ int doCombinations(int* rx, int* ry, int len, int pointsPerLagrange,
            (hammingBehaviour ==  1 && (indices[hammingIndex] == hammingValue))){
             return checkPoints(rx, ry, len, pointsPerLagrange, indices);
         }
-        return -1;
+        return COULDNT_BE_FIXED;
     }
 
     for(int i = indexValue; i < len; i++){
@@ -439,18 +475,18 @@ int doCombinations(int* rx, int* ry, int len, int pointsPerLagrange,
             }
         }
 
-        int ret = doCombinations(rx, ry, len, pointsPerLagrange, 
+        AlgorithmReturn ret = doCombinations(rx, ry, len, pointsPerLagrange, 
                                  indices, nextIndex, indexPosition + 1,
                                  hammingBehaviour, hammingValue, hammingIndex);
         // If the combination cannot be checked, continue searching for a new combination.
         // If no error was found or the error was fixed, no need to continue searching.
-        if(ret != -1)   return ret;
+        if(ret != COULDNT_BE_FIXED)   return ret;
     }
     // If this is reached, there are more errors than the maximum able for the algorithm to fix.
-    return -1;
+    return COULDNT_BE_FIXED;
 }
 
-int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
+AlgorithmReturn verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
     // Using Bi<a,b>=a!/b!/(a-b)! ...
     // Number of combinations when EEPROM is faulty: 
     //    > Bi<len, pointsPerLagrange> 
@@ -459,7 +495,7 @@ int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
     // Example:
     //    > Using 10 points, with 3 EXTRA_POINTS: Faulty: 286 checks, Non faulty: 120 checks (~42%).
     int indices[pointsPerLagrange];
-    int verificationStatus = 0;
+    AlgorithmReturn verificationStatus = UNDEFINED;
     
     if(EEPROM_NOT_CORRUPTED){
         // If the EEPROM is right, we can use the Hamming code to indicate which point to SKIP in 
@@ -472,7 +508,9 @@ int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
         
         // When using the EEPROM the Hamming has to be on the data side, not on the EEPROM side. 
         // If the Hamming is on the EEPROM, that means that there are more than two errors.
-        if(currentHamming < len - EXTRA_POINTS){
+        // The Hamming's value is the point on which an error occurred. If there are are more than a
+        // single error then the Hamming cannot be trusted.
+        if(currentHamming < (len - EXTRA_POINTS)){
             verificationStatus = 
                         doCombinations(rx, ry, len, pointsPerLagrange,
                                     indices, 0, 0, 
@@ -483,11 +521,15 @@ int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
                                     indices, 0, 0, 
                                     1, currentHamming, 0); // Only run Hamming's combinations.
             }
+        }else{
+            goto dontUseHamming;
         }
     }else{
+        dontUseHamming:        
         // Never mind the Hamming.
         verificationStatus = doCombinations(rx, ry, len, pointsPerLagrange, indices, 0, 0, 0, 0, 0);
     }
+
 
     // If the verification failed, check if some of the extra points could be points trimmed that
     // exceeded the 255 value set by the byte limit. Remember that extra points are in [0, MODULUS).
@@ -496,6 +538,7 @@ int verifyMessage(int* rx, int* ry, int len, int pointsPerLagrange){
     for(int i = len-EXTRA_POINTS; (verificationStatus < 0) && (i < len); i++){
         while((verificationStatus < 0) && (ry[i]+256 < MODULUS)){
             ry[i] += 256;
+            // Do it recursively to try all possible combinations.
             verificationStatus = verifyMessage(rx, ry, len, pointsPerLagrange);
         }
     }
@@ -555,7 +598,7 @@ int generateRandom(int lower, int upper) {
     return num;
 }
 
-int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numErrors){
+AlgorithmReturn runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numErrors){
     int xx[numPoints + EXTRA_POINTS];
     int yy[numPoints + EXTRA_POINTS + 1];
 
@@ -568,7 +611,7 @@ int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numEr
     
     // New errors are introduced!
     for(int i = 0; i < numErrors; i++){
-        if(EEPROM_NOT_CORRUPTED && i >= numPoints){
+        if(EEPROM_NOT_CORRUPTED && errX[i] >= numPoints){
             printf("If EEPROM is not corrupted, there cannot be errors and the EEPROM side.\n");
             exit(-1);
         }
@@ -579,19 +622,24 @@ int runSimulation(int* x, int* y, int numPoints, int* errX, int* errY, int numEr
     memcpy(ry, errory, sizeof(errory));
 
     // Find the error.
-    int success = verifyMessage(xx, ry, numPoints+EXTRA_POINTS, numPoints);
-    if(success != -1){
+    AlgorithmReturn success = verifyMessage(xx, ry, numPoints+EXTRA_POINTS, numPoints);
+    if(success > 0){
         int sameAsSent = 1;
-        for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
+        for(int i = 0; (i < numPoints+EXTRA_POINTS) && sameAsSent; i++){
             sameAsSent &= yy[i] == ry[i];
         }
         if(!sameAsSent){
-            printf("NOT FIXED!\n");
-            success = -2;
+            if(numErrors >= EXTRA_POINTS)   success = FIXED_INCORRECTLY_EXCEEDS_NUMBER_OF_ERRORS;
+            else                            success = FIXED_INCORRECTLY;
         }
+    }else if(success == COULDNT_BE_FIXED && numErrors >= EXTRA_POINTS){
+        success = EXCEEDS_NUMBER_OF_ERRORS;
     }
 
-    if(success < 0){
+    if((PRINT_NON_FIXABLE_INPUTS && success == COULDNT_BE_FIXED) ||
+        (PRINT_INCORRECTLY_FIXED_INPUTS && 
+        (success == FIXED_INCORRECTLY || success == FIXED_INCORRECTLY_EXCEEDS_NUMBER_OF_ERRORS))){
+        printf("NOT FIXED!\n");
         printf("Points: %d. Errors: %d\n", numPoints, numErrors);
         printf("\nX :\t");
         for(int i = 0; i < numPoints+EXTRA_POINTS; i++){
@@ -638,7 +686,7 @@ void shuffleArray(int *array, int len) {
     }
 }
 
-int createSimulation(int numPoints, int minErrors, int maxErrors){
+AlgorithmReturn createSimulation(int numPoints, int minErrors, int maxErrors){
     int numErrors = generateRandom(minErrors, maxErrors);
 
     int x[numPoints];
@@ -690,7 +738,7 @@ int createSimulation(int numPoints, int minErrors, int maxErrors){
 
 void printLoadingBar(long progress, long total) {
     int barLen = (progress * BAR_WIDTH) / total;
-    printf("Progress: [");
+    printf("\e[?25lProgress: [");
     for (int i = 0; i < BAR_WIDTH; ++i) {
         if (i < barLen) {
             printf("#");
@@ -698,18 +746,19 @@ void printLoadingBar(long progress, long total) {
             printf(" ");
         }
     }
-    printf("] %ld%%: %ld/%ld\r", (progress * 100) / total, progress, total);
+    printf("] %ld%%: %ld/%ld\r\e[?25h", (progress * 100) / total, progress, total);
     fflush(stdout);
 }
 
-void testBench(int totalTests){
+void testBench(int totalTests, int maxErrors){
     srand(time(0));
     printf("Points per sample: %d\n", RS_MAX_POLY_DEGREE-EXTRA_POINTS);
-    printf("Number of errors: rand(%d, %d)\n", 1, EXTRA_POINTS);
+    printf("Number of errors: rand[%d, %d]\n", 1, maxErrors);
     printf("################ TEST BEGIN ################\n");
     int success = 0;
-    int noErrors = 0;
+    int errorsExceedMaximum = 0;
     int fixedIncorrectly = 0;
+    int fixedIncorrectlyExceedsNumberErrors = 0;
 
     struct timespec t0, t1;
     long long maxElapsed = 0;
@@ -723,11 +772,12 @@ void testBench(int totalTests){
         }
 
         // Run the simulation.
-        int result = createSimulation(RS_MAX_POLY_DEGREE-EXTRA_POINTS, 1, EXTRA_POINTS-1);
-        success += result >= 0;
-        noErrors += result == 0;
-        fixedIncorrectly += result == -2;
-        
+        AlgorithmReturn result = createSimulation(RS_MAX_POLY_DEGREE-EXTRA_POINTS, 0, maxErrors);
+        success += result > 0;
+        fixedIncorrectly += (result == FIXED_INCORRECTLY || result == FIXED_INCORRECTLY_EXCEEDS_NUMBER_OF_ERRORS);
+        errorsExceedMaximum += (result == EXCEEDS_NUMBER_OF_ERRORS || result == FIXED_INCORRECTLY_EXCEEDS_NUMBER_OF_ERRORS);
+        fixedIncorrectlyExceedsNumberErrors += (result == FIXED_INCORRECTLY_EXCEEDS_NUMBER_OF_ERRORS);
+
         if (clock_gettime(CLOCK_REALTIME, &t1) != 0) {
             perror("clock_gettime");
             return;
@@ -746,8 +796,9 @@ void testBench(int totalTests){
         printLoadingBar(i+1, totalTests);
     }
     printf("\n############# TEST RESULTS ################\n");
-    printf("Success rate: %d/%d. No errors: %d. Fixed incorrectly: %d.\n", 
-           success, totalTests, noErrors, fixedIncorrectly);
+    printf("Success rate: %d/%d. Fixed incorrectly: %d.\n"
+           "Exceeding error limit: %d, of which fixed incorrectly: %d.\n", 
+           success, totalTests, fixedIncorrectly, errorsExceedMaximum, fixedIncorrectlyExceedsNumberErrors);
     double bitRate = ((double)(RS_MAX_POLY_DEGREE-EXTRA_POINTS))*totalTests*1e9/averageElapsed;
     double byteRate = bitRate / 8.0;
     printf("Bitrate: %0.2f bits/sec. Byterate: %0.2f bytes/sec.\n", bitRate, byteRate);
@@ -761,7 +812,16 @@ void testBench(int totalTests){
  **************************************************************************************************/
 
 int testCase(){
-    int y[] = { 29,     18,     248,    166};
+    int y[] = { 0x9a, 
+                0x48, 
+                0x3e, 
+                0x35, 
+                0x27, 
+                0xa8, 
+                0x78, 
+                0xe9, 
+                0x64, 
+                0x91};
     int numPoints = sizeof(y)/sizeof(int);
 
     int x[numPoints];
@@ -769,8 +829,8 @@ int testCase(){
         x[i] = i;
     }
 
-    int errX[] = {1};
-    int errY[] = {76};
+    int errX[] = {4,5,6,7,8};
+    int errY[] = {0xe9, 0xa8, 0x78, 0xe9, 0xf3};
     int numErrors = sizeof(errX)/sizeof(int);
 
     return runSimulation(x, y, numPoints, errX, errY, numErrors);
@@ -879,6 +939,8 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
 
     long filePosition = 0;
     long correctionPosition = 0;
+    long blocksCorrected = 0;
+    long totalBlocks = 0;
     while(filePosition < inputFilesize && correctionPosition < recFilesize){
         printLoadingBar(filePosition, inputFilesize);
         memset(y, 0, sizeof(y));
@@ -907,7 +969,10 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
                 printf("%02X", y[i]);
             }
             printf("\n");
+        }else{
+            blocksCorrected++;
         }
+        totalBlocks++;
 
         for(int j = 0; j < RS_MAX_POLY_DEGREE-EXTRA_POINTS; j++){
             char putData = y[j] & 0xFF;
@@ -922,7 +987,7 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
     printLoadingBar(inputFilesize, inputFilesize);
 
     if(filePosition >= inputFilesize && correctionPosition >= recFilesize){
-        printf("\nCorrection completed!\n");
+        printf("\nCorrection completed! %ld of %ld blocks OK!\n", blocksCorrected, totalBlocks);
     }else{
         printf("\nThe files were misaligned or an external error happened!\n");
         printf("Input: %ld/%ld, Correction: %ld/%ld\n", 
@@ -938,10 +1003,11 @@ void recuperateFile(const char* inputFilename, const char* recuperationFilename)
  * MAIN
  **************************************************************************************************/
 int main(){
-    // testBench(10000);
+    testBench(100000, EXTRA_POINTS);
     // testCase();
 
-    createRecuperationFile("C:\\Users\\dabc\\repos\\CodingQuestions\\original.bin");
-    recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\corrupted.bin",
-        "C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
+    // createRecuperationFile("C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\original.bin");
+ 
+    // recuperateFile("C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\corrupted.bin",
+    //     "C:\\Users\\dabc\\repos\\CodingQuestions\\ReedSalomon\\errorRec.bin");
 }
