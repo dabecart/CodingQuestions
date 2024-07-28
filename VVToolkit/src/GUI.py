@@ -1,66 +1,80 @@
-import sys
-from dataclasses import dataclass
-from typing import List
+from typing import Optional
+
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QCheckBox, QVBoxLayout, QWidget, QHeaderView,
-    QLineEdit, QLabel, QFormLayout, QSplitter, QFrame, QHBoxLayout, QPushButton, QAbstractItemView
+    QMainWindow, QTableWidget, QTableWidgetItem, QCheckBox, QVBoxLayout, QWidget, QHeaderView,
+    QLabel, QFormLayout, QSplitter, QHBoxLayout, QPushButton, QAbstractItemView, QMessageBox,
+    QFileDialog
 )
 from PyQt6.QtCore import Qt, QEvent
-from PyQt6.QtGui import QIntValidator, QColor, QKeySequence, QPalette, QAction
+from PyQt6.QtGui import QIntValidator, QIcon
 
-@dataclass
-class Item:
-    id: int
-    name: str
-    category: str
-    repetitions: int
-    enabled: bool
-
-class LabeledLineEdit(QWidget):
-    def __init__(self, label_text="", parent=None, validator=None):
-        super().__init__(parent)
-        
-        self.layout = QHBoxLayout()
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.lineEdit = QLineEdit(self)
-        if validator is not None:
-            self.lineEdit.setValidator(validator)
-
-        self.errorLabel = QLabel("", self)
-        self.errorLabel.setStyleSheet("color: red; margin: 0px;")
-        
-        self.layout.addWidget(self.lineEdit)
-        self.layout.addWidget(self.errorLabel)
-        self.setLayout(self.layout)
-
-        self.errorLabel.hide()  # Hide error label initially
-
-    def setError(self, error_text):
-        self.lineEdit.setStyleSheet("background-color: red;")
-        self.errorLabel.setText(error_text)
-        self.errorLabel.show()
-
-    def clearError(self):
-        self.lineEdit.setStyleSheet("")
-        self.errorLabel.hide()
-
-    def text(self):
-        return self.lineEdit.text()
-
-    def setText(self, text):
-        self.lineEdit.setText(text)
+from DataFields import Item, loadItemsFromFile, saveItemsToFile;
+from LabeledEditLine import LabeledLineEdit
+from RecolorSVG import recolor_svg
+# Load the icons
+import res_pack
 
 class ItemTable(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        self.setWindowTitle("Item List")
+        self.setWindowTitle("Verification and Validation Toolkit")
         self.setGeometry(100, 100, 800, 600)
         
         # Create the main splitter
         self.splitter = QSplitter(Qt.Orientation.Vertical)
         self.setCentralWidget(self.splitter)
+        self.splitter.hide()
+
+        # Menu Bar
+        menubar = self.menuBar()
+
+        file_menu = menubar.addMenu('&File')
+
+        open_action = file_menu.addAction(QIcon(':file-open'), '&Open...')
+        open_action.setShortcut("Ctrl+O")
+        open_action.triggered.connect(self.open_file)
+
+        save_action = file_menu.addAction(QIcon(':file-save'),'&Save')
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self.save_file)
+
+        close_file_action = file_menu.addAction('Close &File')
+        close_file_action.setShortcut("Ctrl+W")
+        close_file_action.triggered.connect(self.close_file)
+
+        file_menu.addSeparator()
+
+        close_action = file_menu.addAction('&Close')
+        close_action.setShortcut("Ctrl+Q")
+        close_action.triggered.connect(self.close)
+
+        edit_menu = menubar.addMenu('&Edit')
+
+        # Set up undo action
+        self.undo_stack = []
+        undo_action = edit_menu.addAction(QIcon(':edit-undo'),'Undo')
+        undo_action.setShortcut("Ctrl+Z")
+        undo_action.triggered.connect(self.undo)
+
+        # Set up redo action
+        self.redo_stack = []
+        redo_action = edit_menu.addAction(QIcon(':edit-redo'),'Redo')
+        redo_action.setShortcut("Ctrl+Y")
+        redo_action.triggered.connect(self.redo)
+
+        fileToolBar = self.addToolBar('File')
+        fileToolBar.addAction(open_action)
+        fileToolBar.addAction(save_action)
+
+        editToolBar = self.addToolBar('Edit')
+        editToolBar.addAction(undo_action)
+        editToolBar.addAction(redo_action)
+
+        # Field to store if the file is not saved.
+        self.unsaved_changes = False
+        # Field to save the currently opened file.
+        self.current_file: Optional[str] = None
 
         # Create a widget for the buttons
         button_widget = QWidget()
@@ -98,9 +112,6 @@ class ItemTable(QMainWindow):
         # Enable sorting
         self.table_widget.setSortingEnabled(True)
         
-        # Populate the table with some example data
-        self.populate_table()
-
         # Connect cell click to show details
         self.current_row = 0
         self.table_widget.cellClicked.connect(self.show_details)
@@ -148,29 +159,71 @@ class ItemTable(QMainWindow):
         # Initially hide the details widget
         self.details_widget.hide()
 
-        # Set up undo action
-        self.undo_stack = []
-        undo_action = QAction("Undo", self)
-        undo_action.setShortcut(QKeySequence("Ctrl+Z"))
-        undo_action.triggered.connect(self.undo)
-        self.addAction(undo_action)
+    def open_file(self):
+        if self.unsaved_changes:
+            reply = QMessageBox.question(self, 'Unsaved Changes',
+                                         'You have unsaved changes. Do you want to save them?',
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No |
+                                         QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Yes)
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
+            if reply == QMessageBox.StandardButton.Yes:
+                self.save_file()
 
-        self.redo_stack = []
+        file_name, _ = QFileDialog.getOpenFileName(self, 'Open File', '', 'JSON Files (*.json)')
+        if file_name:
+            try:
+                self.items = loadItemsFromFile(file_name)
+                self.current_file = file_name
+                self.populate_table()
 
-        redo_action = QAction("Redo", self)
-        redo_action.setShortcut(QKeySequence("Ctrl+Y"))
-        redo_action.triggered.connect(self.redo)
-        self.addAction(redo_action)
+                # Hide the details pane and show the window's content.
+                self.details_widget.hide()
+                self.splitter.show()
+            except Exception as e:
+                QMessageBox.critical(self, 'Error', f'Could not open file: {e}')
+
+    def save_file(self):
+        if not self.current_file:
+            QMessageBox.warning(self, 'No File', 'No file selected. Please open a file first.')
+            return
+
+        try:
+            saveItemsToFile(self.items, self.current_file)
+            self.unsaved_changes = False
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Could not save file: {e}')
+
+    def close_file(self):
+        if self.unsaved_changes:
+            reply = QMessageBox.question(self, 'Unsaved Changes',
+                                         'You have unsaved changes. Do you want to save them?',
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No |
+                                         QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Yes)
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
+            if reply == QMessageBox.StandardButton.Yes:
+                self.save_file()
+
+        # Hide the whole window pane.
+        self.splitter.hide()
+        self.current_file = None
+        self.unsaved_changes = False
+
+    def closeEvent(self, event):
+        if self.unsaved_changes:
+            reply = QMessageBox.question(self, 'Unsaved Changes',
+                                         'You have unsaved changes. Do you want to save them?',
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No |
+                                         QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Yes)
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            if reply == QMessageBox.StandardButton.Yes:
+                self.save_file()
+        event.accept()
 
     def populate_table(self):
-        self.items: List[Item] = [
-            Item(1, "Item 1", "A", 5, True),
-            Item(2, "Item 2", "B", 2, False),
-            Item(3, "Item 3", "A", 7, True),
-            Item(4, "Item 4", "C", 1, False),
-            Item(5, "Item 5", "B", 4, True),
-        ]
-        
         self.table_widget.setRowCount(len(self.items))
         
         for row, item in enumerate(self.items):
@@ -186,6 +239,9 @@ class ItemTable(QMainWindow):
         
         self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table_widget.horizontalHeader().setSortIndicatorShown(True)
+
+        # When opening, the cells get populated and think that a change has happened. Not the case.
+        self.unsaved_changes = False
 
     def show_details(self, row, column = -1):
         item = self.items[row]
@@ -235,25 +291,28 @@ class ItemTable(QMainWindow):
                 if self.checkIDOk(inputID): 
                     item.id = int(self.table_widget.item(row, column).text())
                 else:
-                    self.table_widget.item(row, column).setText(str(item.id))  # Restore original value
+                    # Restore the original value
+                    self.table_widget.item(row, column).setText(str(item.id))
                     return
         
         elif column == 1:
             if not self.table_widget.item(row, column).text():
-                self.table_widget.item(row, column).setText(item.name)  # Restore original value
+                self.table_widget.item(row, column).setText(item.name)
             else:
                 item.name = self.table_widget.item(row, column).text()
         elif column == 2:
             if not self.table_widget.item(row, column).text():
-                self.table_widget.item(row, column).setText(item.category)  # Restore original value
+                self.table_widget.item(row, column).setText(item.category)
             else:
                 item.category = self.table_widget.item(row, column).text()
         elif column == 3:
             try:
                 item.repetitions = int(self.table_widget.item(row, column).text())
             except ValueError:
-                self.table_widget.item(row, column).setText(str(item.repetitions))  # Restore original value
+                self.table_widget.item(row, column).setText(str(item.repetitions))
             return
+        
+        self.unsaved_changes = True
         
     def update_table_from_details(self):
         item = self.items[self.current_row]
@@ -265,8 +324,16 @@ class ItemTable(QMainWindow):
             return
 
         item.name = self.name_field.text()
+        
         item.category = self.category_field.text()
-        item.repetitions = int(self.repetitions_field.text())
+        
+        try:
+            item.repetitions = int(self.repetitions_field.text())
+            self.repetitions_field.clearError()
+        except ValueError:
+            self.repetitions_field.setError("Repetitions must be a number.")
+            return        
+        
         item.enabled = self.enabled_field.isChecked()
 
         self.table_widget.item(self.current_row, 0).setText(str(item.id))
@@ -276,6 +343,8 @@ class ItemTable(QMainWindow):
         self.table_widget.cellWidget(self.current_row, 4).blockSignals(True)
         self.table_widget.cellWidget(self.current_row, 4).setChecked(item.enabled)
         self.table_widget.cellWidget(self.current_row, 4).blockSignals(False)
+        
+        self.unsaved_changes = True
 
     def update_enabled_from_table(self, row, state):
         # Update the row when clicking on the checkbox.
@@ -289,24 +358,24 @@ class ItemTable(QMainWindow):
         self.enabled_field.blockSignals(False)
 
     # Check that the ID is not being used.
-    def checkIDOk(self, newID) -> bool:
+    def checkIDOk(self, newID) -> int:
         if type(newID) is str:
             try:
                 newID = int(newID)
             except ValueError:
-                return False
+                return 1
 
         for i, item in enumerate(self.items):
             if i != self.current_row and item.id == newID:
-                return False
-        return True
+                return 2
+        return 0
 
     def validate_id(self):
         new_id = self.id_field.text()
-        if self.checkIDOk(new_id):
-            self.id_field.clearError()
-        else:
-            self.id_field.setError("This ID is already in use.")
+        match self.checkIDOk(new_id):
+            case 0: self.id_field.clearError()
+            case 1: self.id_field.setError("This ID is not a number.")
+            case 2: self.id_field.setError("This ID is already in use.")
 
     def deselect_all(self):
         self.table_widget.clearSelection()
@@ -341,6 +410,8 @@ class ItemTable(QMainWindow):
         self.undo_stack.append(('remove', new_item))
         self.table_widget.scrollToBottom()
 
+        self.unsaved_changes = True
+
     def remove_item(self):
         selected_items = self.table_widget.selectedItems()
         if selected_items:
@@ -349,6 +420,8 @@ class ItemTable(QMainWindow):
             self.table_widget.removeRow(row)
             self.undo_stack.append(('add', item))
             self.details_widget.hide()
+
+            self.unsaved_changes = True
 
     def undo(self):
         if not self.undo_stack:
@@ -399,9 +472,3 @@ class ItemTable(QMainWindow):
                 if int(self.table_widget.item(i, 0).text()) == item.id:
                     self.table_widget.removeRow(i)
                     break
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = ItemTable()
-    window.show()
-    sys.exit(app.exec())

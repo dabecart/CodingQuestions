@@ -1,0 +1,8 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file alias="file-open.svg">file-open.svg</file>
+    <file alias="file-save.svg">file-save.svg</file>
+    <file alias="edit-undo.svg">edit-undo.svg</file>
+    <file alias="edit-redo.svg">edit-redo.svg</file>
+</qresource>
+</RCC>

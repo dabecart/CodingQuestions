@@ -1,67 +1,57 @@
-from PyQt6.QtWidgets import QApplication, QWidget, QFormLayout, QLineEdit, QLabel
+import sys
+from PyQt6.QtWidgets import QApplication, QLabel
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QColor
+from PyQt6.QtCore import Qt, QByteArray, QBuffer, QIODevice
+from PyQt6.QtSvg import QSvgRenderer
+import res_pack  # Import your compiled resources
 
-class LineEditWithError(QWidget):
-    def __init__(self, label, parent_layout, parent=None):
-        super().__init__(parent)
-        self.parent_layout = parent_layout
-        self.error_label = None
+def recolor_svg(icon_path, color):
+    # Load the SVG data from the resource
+    svg_data = None
+    with open(icon_path, 'r') as file:
+        svg_data = file.read()
 
-        # Create the line edit
-        self.line_edit = QLineEdit()
-        
-        # Add the line edit to the parent layout
-        self.row = self.parent_layout.rowCount()
-        self.parent_layout.addRow(label, self.line_edit)
+    if svg_data is None:
+        raise FileNotFoundError(f"SVG file not found: {icon_path}")
 
-    def setError(self, error_message):
-        if not self.error_label:
-            self.error_label = QLabel()
-            self.error_label.setStyleSheet("color: red;")
-            # Insert a new row for the error label right after the line edit's row
-            self.parent_layout.insertRow(self.row + 1, "", self.error_label)
-        self.error_label.setText(error_message)
-        self.error_label.show()
-        self.update_rows(1)  # Adjust row indices for subsequent LineEditWithError instances
+    # Modify the SVG data to change the fill color
+    colored_svg_data = svg_data.replace('fill="#000000"', f'fill="{color}"')
+    
+    # Convert the modified SVG data to QByteArray
+    byte_array = QByteArray()
+    buffer = QBuffer(byte_array)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    buffer.write(colored_svg_data.encode('utf-8'))
+    buffer.close()
 
-    def clearError(self):
-        if self.error_label:
-            self.parent_layout.removeRow(self.row + 1)
-            self.error_label = None
-            self.update_rows(-1)  # Adjust row indices for subsequent LineEditWithError instances
+    # Load the modified SVG data into QSvgRenderer
+    renderer = QSvgRenderer(byte_array)
+    
+    # Create a QImage to render the SVG onto
+    image = QImage(renderer.defaultSize(), QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)  # Fill with transparency
 
-    def update_rows(self, adjustment):
-        # Adjust the row indices for all subsequent LineEditWithError instances
-        for i in range(self.row + 1, self.parent_layout.rowCount()):
-            widget = self.parent_layout.itemAt(i, QFormLayout.ItemRole.FieldRole).widget()
-            if isinstance(widget, LineEditWithError):
-                widget.row += adjustment
+    # Render the SVG onto the QImage
+    painter = QPainter(image)
+    renderer.render(painter)
+    painter.end()
 
-class FormExample(QWidget):
-    def __init__(self):
-        super().__init__()
+    # Convert QImage to QPixmap for display
+    pixmap = QPixmap.fromImage(image)
+    return pixmap
 
-        self.form_layout = QFormLayout()
-        self.setLayout(self.form_layout)
+def main():
+    app = QApplication(sys.argv)
 
-        self.line_edits_with_error = []
-        for i in range(3):  # Example with three line edits
-            line_edit_with_error = LineEditWithError(f"Label {i + 1}:", self.form_layout)
-            line_edit_with_error.line_edit.textChanged.connect(self.validate_input)
-            self.line_edits_with_error.append(line_edit_with_error)
+    # Use the recolor function to get a white version of the SVG
+    try:
+        pixmap = recolor_svg(':/file-open.svg', "white")
+        label = QLabel()
+        label.setPixmap(pixmap)
+        label.show()
+        sys.exit(app.exec())
+    except Exception as e:
+        print(f"Error: {e}")
 
-    def validate_input(self):
-        for line_edit_with_error in self.line_edits_with_error:
-            text = line_edit_with_error.line_edit.text()
-            if self.is_input_valid(text):
-                line_edit_with_error.clearError()
-            else:
-                line_edit_with_error.setError("Error: Input must be numeric")
-
-    def is_input_valid(self, text):
-        return text.isnumeric()
-
-if __name__ == '__main__':
-    app = QApplication([])
-    form_example = FormExample()
-    form_example.show()
-    app.exec()
+if __name__ == "__main__":
+    main()
