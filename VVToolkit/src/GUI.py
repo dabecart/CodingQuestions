@@ -39,7 +39,7 @@ class ItemTable(QMainWindow):
         openAction = fileMenu.addAction(createIcon(':file-open', self.colorTheme), '&Open...')
         openAction.setShortcut("Ctrl+O")
         openAction.setStatusTip("Open a file")
-        openAction.triggered.connect(self.open_file)
+        openAction.triggered.connect(self.openFile)
 
         saveAction = fileMenu.addAction(createIcon(':file-save', self.colorTheme),'&Save')
         saveAction.setShortcut("Ctrl+S")
@@ -91,8 +91,8 @@ class ItemTable(QMainWindow):
         duplicateItemAction.setStatusTip("Duplicate an item from the list")
         duplicateItemAction.triggered.connect(self.duplicateItem)
 
-        settings_menu = menubar.addMenu('&Settings')
-        programSettAction = settings_menu.addAction(createIcon(':settings-program', self.colorTheme),'&Program settings')
+        settingsMenu = menubar.addMenu('&Settings')
+        programSettAction = settingsMenu.addAction(createIcon(':settings-program', self.colorTheme),'&Program settings')
         programSettAction.setShortcut("Ctrl+R")
         programSettAction.setStatusTip("Configure the program behavior.")
 
@@ -159,7 +159,7 @@ class ItemTable(QMainWindow):
         self.tableWidget.setSortingEnabled(True)
         
         # Connect cell click to show details
-        self.current_row = 0
+        self.currentRow = 0
         self.tableWidget.cellClicked.connect(self.showDetails)
         self.tableWidget.cellChanged.connect(self.updateDetailsFromTable)
         self.tableWidget.currentCellChanged.connect(self.updateDetailsFromSelection)
@@ -228,7 +228,7 @@ class ItemTable(QMainWindow):
 
         self.unsavedChanges = True
 
-    def open_file(self):
+    def openFile(self):
         if self.unsavedChanges:
             reply = QMessageBox.question(self, 'Unsaved Changes',
                                          'You have unsaved changes. Do you want to save them?',
@@ -335,7 +335,7 @@ class ItemTable(QMainWindow):
 
     def showDetails(self, row, column = -1):
         item = self.items[row]
-        self.current_row = row
+        self.currentRow = row
         self.idField.setText(str(item.id))
         self.nameField.setText(item.name)
         self.categoryField.setText(item.category)
@@ -373,7 +373,7 @@ class ItemTable(QMainWindow):
             self.detailsWidget.hide()
 
     def updateDetailsFromTable(self, row, column):
-        if row != self.current_row:
+        if row != self.currentRow:
             return
         item = self.items[row]
         if column == 0:
@@ -405,7 +405,7 @@ class ItemTable(QMainWindow):
         self.unsavedChanges = True
         
     def updateTableFromDetails(self):
-        item = self.items[self.current_row]
+        item = self.items[self.currentRow]
         try:
             item.id = int(self.idField.text())
             self.idField.clearError()
@@ -426,19 +426,19 @@ class ItemTable(QMainWindow):
         
         item.enabled = self.enabledField.isChecked()
 
-        self.tableWidget.item(self.current_row, 0).setText(str(item.id))
-        self.tableWidget.item(self.current_row, 1).setText(item.name)
-        self.tableWidget.item(self.current_row, 2).setText(item.category)
-        self.tableWidget.item(self.current_row, 3).setText(str(item.repetitions))
-        self.tableWidget.cellWidget(self.current_row, 4).blockSignals(True)
-        self.tableWidget.cellWidget(self.current_row, 4).setChecked(item.enabled)
-        self.tableWidget.cellWidget(self.current_row, 4).blockSignals(False)
+        self.tableWidget.item(self.currentRow, 0).setText(str(item.id))
+        self.tableWidget.item(self.currentRow, 1).setText(item.name)
+        self.tableWidget.item(self.currentRow, 2).setText(item.category)
+        self.tableWidget.item(self.currentRow, 3).setText(str(item.repetitions))
+        self.tableWidget.cellWidget(self.currentRow, 4).blockSignals(True)
+        self.tableWidget.cellWidget(self.currentRow, 4).setChecked(item.enabled)
+        self.tableWidget.cellWidget(self.currentRow, 4).blockSignals(False)
         
         self.unsavedChanges = True
 
     def updateEnabledFromTable(self, row, state):
         # Update the row when clicking on the checkbox.
-        self.current_row = row
+        self.currentRow = row
         self.showDetails(row)
 
         item = self.items[row]
@@ -456,13 +456,13 @@ class ItemTable(QMainWindow):
                 return 1
 
         for i, item in enumerate(self.items):
-            if i != self.current_row and item.id == newID:
+            if i != self.currentRow and item.id == newID:
                 return 2
         return 0
 
     def validateID(self):
-        new_id = self.idField.text()
-        match self.checkIDOk(new_id):
+        newID = self.idField.text()
+        match self.checkIDOk(newID):
             case 0: self.idField.clearError()
             case 1: self.idField.setError("This ID is not a number.")
             case 2: self.idField.setError("This ID is already in use.")
@@ -484,11 +484,11 @@ class ItemTable(QMainWindow):
 
     def addItem(self, newItem):
         # Find the maximum current ID
-        max_id = max(item.id for item in self.items) if self.items else 0
+        maxID = max(item.id for item in self.items) if self.items else 0
         if type(newItem) is bool:
-            newItem=Item(max_id + 1, "", "", 0, True)
+            newItem=Item(maxID + 1, "", "", 0, True)
         elif type(newItem) is Item:
-            newItem.id = max_id + 1
+            newItem.id = maxID + 1
         else:
             raise Exception(f"Unexpected type received ({type(newItem)})")
 
