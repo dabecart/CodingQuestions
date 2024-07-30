@@ -1,9 +1,24 @@
-import sys
-from PyQt6.QtWidgets import QApplication, QLabel
-from PyQt6.QtGui import QPixmap, QImage, QPainter
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QIcon
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QFile, Qt
-import res_pack  # Import your compiled resources
+
+# Import the res_pack.py file that is stored in the res folder.
+import os, sys
+# Get the absolute path of the project directory
+project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# Add the res directory to the system path
+res_dir = os.path.join(project_dir, 'res')
+sys.path.append(res_dir)
+import res_pack
+
+def createIcon(icon_path : str, theme : str):
+    color : str = None
+    match theme:
+        case 'light':
+            color = "black"
+        case 'dark':
+            color = "white"
+    return QIcon(recolor_svg(icon_path, color))
 
 def recolor_svg(icon_path, color):
     # Load the SVG data from the resource
@@ -39,19 +54,3 @@ def recolor_svg(icon_path, color):
     # Convert QImage to QPixmap for display
     pixmap = QPixmap.fromImage(image)
     return pixmap
-
-def main():
-    app = QApplication(sys.argv)
-
-    # Use the recolor function to get a white version of the SVG
-    try:
-        pixmap = recolor_svg(':/file-open.svg', "white")
-        label = QLabel()
-        label.setPixmap(pixmap)
-        label.show()
-        sys.exit(app.exec())
-    except Exception as e:
-        print(f"Error: {e}")
-
-if __name__ == "__main__":
-    main()

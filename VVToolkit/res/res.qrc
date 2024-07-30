@@ -1,8 +1,13 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
-    <file alias="file-open.svg">file-open.svg</file>
-    <file alias="file-save.svg">file-save.svg</file>
-    <file alias="edit-undo.svg">edit-undo.svg</file>
-    <file alias="edit-redo.svg">edit-redo.svg</file>
+    <file alias="file-new">file-new.svg</file>
+    <file alias="file-open">file-open.svg</file>
+    <file alias="file-save">file-save.svg</file>
+    <file alias="edit-undo">edit-undo.svg</file>
+    <file alias="edit-redo">edit-redo.svg</file>
+    <file alias="quit">quit.svg</file>
+    <file alias="help-about">help-about.svg</file>
+    <file alias="settings-program">settings-program.svg</file>
+    <file alias="logo">logo.ico</file>
 </qresource>
 </RCC>

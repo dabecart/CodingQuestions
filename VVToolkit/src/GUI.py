@@ -10,9 +10,7 @@ from PyQt6.QtGui import QIntValidator, QIcon
 
 from DataFields import Item, loadItemsFromFile, saveItemsToFile;
 from LabeledEditLine import LabeledLineEdit
-from RecolorSVG import recolor_svg
-# Load the icons
-import res_pack
+from Icons import createIcon
 
 class ItemTable(QMainWindow):
     def __init__(self):
@@ -20,6 +18,8 @@ class ItemTable(QMainWindow):
         
         self.setWindowTitle("Verification and Validation Toolkit")
         self.setGeometry(100, 100, 800, 600)
+        self.setWindowIcon(QIcon(':logo'))
+        self.colorTheme = "dark"
         
         # Create the main splitter
         self.splitter = QSplitter(Qt.Orientation.Vertical)
@@ -31,39 +31,62 @@ class ItemTable(QMainWindow):
 
         file_menu = menubar.addMenu('&File')
 
-        open_action = file_menu.addAction(QIcon(':file-open'), '&Open...')
+        new_action = file_menu.addAction(createIcon(':file-new', self.colorTheme), '&New...')
+        new_action.setShortcut("Ctrl+N")
+        new_action.setStatusTip("Create a new file")
+        new_action.triggered.connect(self.new_file)
+
+        open_action = file_menu.addAction(createIcon(':file-open', self.colorTheme), '&Open...')
         open_action.setShortcut("Ctrl+O")
+        open_action.setStatusTip("Open a file")
         open_action.triggered.connect(self.open_file)
 
-        save_action = file_menu.addAction(QIcon(':file-save'),'&Save')
+        save_action = file_menu.addAction(createIcon(':file-save', self.colorTheme),'&Save')
         save_action.setShortcut("Ctrl+S")
+        save_action.setStatusTip("Save the current file")
         save_action.triggered.connect(self.save_file)
 
-        close_file_action = file_menu.addAction('Close &File')
+        close_file_action = file_menu.addAction('&Close file')
         close_file_action.setShortcut("Ctrl+W")
+        close_file_action.setStatusTip("Close the current file")
         close_file_action.triggered.connect(self.close_file)
 
         file_menu.addSeparator()
 
-        close_action = file_menu.addAction('&Close')
+        close_action = file_menu.addAction(createIcon(':quit', self.colorTheme), '&Quit')
         close_action.setShortcut("Ctrl+Q")
+        close_action.setStatusTip("Quit the application")
         close_action.triggered.connect(self.close)
 
         edit_menu = menubar.addMenu('&Edit')
 
         # Set up undo action
         self.undo_stack = []
-        undo_action = edit_menu.addAction(QIcon(':edit-undo'),'Undo')
+        undo_action = edit_menu.addAction(createIcon(':edit-undo', self.colorTheme),'&Undo')
         undo_action.setShortcut("Ctrl+Z")
+        undo_action.setStatusTip("Undo the last operation")
         undo_action.triggered.connect(self.undo)
 
         # Set up redo action
         self.redo_stack = []
-        redo_action = edit_menu.addAction(QIcon(':edit-redo'),'Redo')
+        redo_action = edit_menu.addAction(createIcon(':edit-redo', self.colorTheme),'&Redo')
         redo_action.setShortcut("Ctrl+Y")
+        redo_action.setStatusTip("Redo the last operation")
         redo_action.triggered.connect(self.redo)
 
+        settings_menu = menubar.addMenu('&Settings')
+        programsett_action = settings_menu.addAction(createIcon(':settings-program', self.colorTheme),'&Program settings')
+        programsett_action.setShortcut("Ctrl+R")
+        programsett_action.setStatusTip("Configure the program behavior.")
+
+        help_menu = menubar.addMenu('&Help')
+        about_action = help_menu.addAction(createIcon(':help-about', self.colorTheme), '&About')
+        about_action.setShortcut("Ctrl+H")
+        about_action.setStatusTip("Get help and info about this program.")
+
+        # Tool bar
         fileToolBar = self.addToolBar('File')
+        fileToolBar.addAction(new_action)
         fileToolBar.addAction(open_action)
         fileToolBar.addAction(save_action)
 
@@ -71,10 +94,19 @@ class ItemTable(QMainWindow):
         editToolBar.addAction(undo_action)
         editToolBar.addAction(redo_action)
 
+        settingsToolBar = self.addToolBar('Edit')
+        settingsToolBar.addAction(programsett_action)
+
         # Field to store if the file is not saved.
         self.unsaved_changes = False
         # Field to save the currently opened file.
         self.current_file: Optional[str] = None
+
+        # Bottom status bar
+        self.statusBar = self.statusBar()
+        self.statusBar.showMessage("Ready", 3000)
+        self.statusBarPermanent = QLabel("")
+        self.statusBar.addPermanentWidget(self.statusBarPermanent)
 
         # Create a widget for the buttons
         button_widget = QWidget()
@@ -102,13 +134,10 @@ class ItemTable(QMainWindow):
 
         self.splitter.addWidget(table_container)
         
-        # Set table dimensions
-        self.table_widget.setColumnCount(5)
-        self.table_widget.setHorizontalHeaderLabels(["ID", "Name", "Category", "Repetitions", "Enabled"])
+        # Set table properties
         self.table_widget.verticalHeader().setVisible(False)  # Remove row numbers
         self.table_widget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # Select entire rows
         self.table_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection) # Single row selection
-        
         # Enable sorting
         self.table_widget.setSortingEnabled(True)
         
@@ -159,6 +188,29 @@ class ItemTable(QMainWindow):
         # Initially hide the details widget
         self.details_widget.hide()
 
+    def new_file(self):
+        if self.unsaved_changes:
+            reply = QMessageBox.question(self, 'Unsaved Changes',
+                                         'You have unsaved changes. Do you want to save them?',
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No |
+                                         QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Yes)
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
+            if reply == QMessageBox.StandardButton.Yes:
+                self.save_file()
+
+        self.items = []
+        self.current_file = "Unnamed.json"
+        self.populate_table()
+
+        # Hide the details pane and show the window's content.
+        self.details_widget.hide()
+        self.splitter.show()
+
+        self.statusBar.showMessage("New file created", 3000)
+
+        self.unsaved_changes = True
+
     def open_file(self):
         if self.unsaved_changes:
             reply = QMessageBox.question(self, 'Unsaved Changes',
@@ -177,6 +229,10 @@ class ItemTable(QMainWindow):
                 self.current_file = file_name
                 self.populate_table()
 
+                self.statusBarPermanent.setText(f"Current file: <b>{self.current_file}</b>")
+
+                self.statusBar.showMessage("File opened", 3000)
+
                 # Hide the details pane and show the window's content.
                 self.details_widget.hide()
                 self.splitter.show()
@@ -186,13 +242,23 @@ class ItemTable(QMainWindow):
     def save_file(self):
         if not self.current_file:
             QMessageBox.warning(self, 'No File', 'No file selected. Please open a file first.')
-            return
+            return False
 
         try:
+            if self.current_file == "Unnamed.json":
+                file_name, _ = QFileDialog.getSaveFileName(self, 'Save File', '', 'JSON Files (*.json)')
+                if file_name:
+                    self.current_file = file_name
+                else:
+                    return False
+
             saveItemsToFile(self.items, self.current_file)
             self.unsaved_changes = False
+            self.statusBar.showMessage("File saved", 3000)
+            return True
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Could not save file: {e}')
+        return False
 
     def close_file(self):
         if self.unsaved_changes:
@@ -203,12 +269,15 @@ class ItemTable(QMainWindow):
             if reply == QMessageBox.StandardButton.Cancel:
                 return
             if reply == QMessageBox.StandardButton.Yes:
-                self.save_file()
+                if not self.save_file():
+                    return
 
         # Hide the whole window pane.
         self.splitter.hide()
         self.current_file = None
         self.unsaved_changes = False
+
+        self.statusBar.showMessage("File closed", 3000)
 
     def closeEvent(self, event):
         if self.unsaved_changes:
@@ -220,12 +289,16 @@ class ItemTable(QMainWindow):
                 event.ignore()
                 return
             if reply == QMessageBox.StandardButton.Yes:
-                self.save_file()
+                if not self.save_file():
+                    event.ignore()
+                    return
         event.accept()
 
     def populate_table(self):
         self.table_widget.setRowCount(len(self.items))
-        
+        self.table_widget.setColumnCount(5)
+        self.table_widget.setHorizontalHeaderLabels(["ID", "Name", "Category", "Repetitions", "Enabled"])
+
         for row, item in enumerate(self.items):
             self.table_widget.setItem(row, 0, QTableWidgetItem(str(item.id)))
             self.table_widget.setItem(row, 1, QTableWidgetItem(item.name))
@@ -288,7 +361,7 @@ class ItemTable(QMainWindow):
         item = self.items[row]
         if column == 0:
                 inputID = int(self.table_widget.item(row, column).text())
-                if self.checkIDOk(inputID): 
+                if self.checkIDOk(inputID) == 0: 
                     item.id = int(self.table_widget.item(row, column).text())
                 else:
                     # Restore the original value
