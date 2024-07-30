@@ -12,7 +12,7 @@ sys.path.append(res_dir)
 import res_pack
 
 def createIcon(icon_path : str, theme : str):
-    color : str = None
+    color : str = theme
     match theme:
         case 'light':
             color = "black"
