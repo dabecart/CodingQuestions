@@ -9,6 +9,7 @@ class Item:
     category: str       = field(default="Undetermined")
     repetitions: int    = field(default=1)
     enabled: bool       = field(default=False)
+    runcode: str        = field(default="")
 
 def saveItemsToFile(items: List[Item], filename: str) -> None:
     with open(filename, 'w') as file:

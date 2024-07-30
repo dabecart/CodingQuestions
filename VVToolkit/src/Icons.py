@@ -2,6 +2,10 @@ from PyQt6.QtGui import QPixmap, QImage, QPainter, QIcon
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QFile, Qt
 
+from typing import Union
+
+from SettingsWindow import ProgramConfig
+
 # Import the res_pack.py file that is stored in the res folder.
 import os, sys
 # Get the absolute path of the project directory
@@ -11,9 +15,15 @@ res_dir = os.path.join(project_dir, 'res')
 sys.path.append(res_dir)
 import res_pack
 
-def createIcon(icon_path : str, theme : str):
-    color : str = theme
-    match theme:
+def createIcon(icon_path : str, theme : Union[ProgramConfig, str]):
+    if type(theme) is ProgramConfig:
+        color : str = theme.colorTheme
+    elif type(theme) is str:
+        color : str = theme
+    else:
+        raise Exception(f"Unexpected type ({type(theme)})")
+
+    match color:
         case 'light':
             color = "black"
         case 'dark':

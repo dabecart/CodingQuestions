@@ -1,15 +1,17 @@
-from typing import Optional
-
 from PyQt6.QtWidgets import (
     QMainWindow, QTableWidget, QTableWidgetItem, QCheckBox, QVBoxLayout, QWidget, QHeaderView,
-    QLabel, QFormLayout, QSplitter, QHBoxLayout, QPushButton, QAbstractItemView, QMessageBox,
-    QFileDialog
+    QLabel, QFormLayout, QSplitter, QHBoxLayout, QPushButton, QMessageBox, QFileDialog
 )
 from PyQt6.QtCore import Qt, QEvent
-from PyQt6.QtGui import QIntValidator, QIcon
+from PyQt6.QtGui import QIntValidator, QIcon, QPalette
+
+from typing import Optional
+from copy import deepcopy
 
 from DataFields import Item, loadItemsFromFile, saveItemsToFile;
 from LabeledEditLine import LabeledLineEdit
+from CodeTextField import CodeTextField
+from SettingsWindow import ProgramConfig, SettingsWindow
 from Icons import createIcon
 
 class ItemTable(QMainWindow):
@@ -19,8 +21,15 @@ class ItemTable(QMainWindow):
         self.setWindowTitle("Verification and Validation Toolkit")
         self.setGeometry(100, 100, 800, 600)
         self.setWindowIcon(QIcon(':logo'))
-        self.colorTheme = "dark"
-        
+
+        # Stores the configuration of the program.
+        self.config = ProgramConfig()
+
+        # Check if the color is closer to black (dark mode) or white (light mode)
+        color = self.palette().color(QPalette.ColorRole.Window)
+        brightness = (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) / 255
+        self.config.colorTheme = "dark" if  brightness < 0.5 else "light"
+
         # Create the main splitter
         self.splitter = QSplitter(Qt.Orientation.Vertical)
         self.setCentralWidget(self.splitter)
@@ -31,17 +40,17 @@ class ItemTable(QMainWindow):
 
         fileMenu = menubar.addMenu('&File')
 
-        newAction = fileMenu.addAction(createIcon(':file-new', self.colorTheme), '&New...')
+        newAction = fileMenu.addAction('&New...')
         newAction.setShortcut("Ctrl+N")
         newAction.setStatusTip("Create a new file")
         newAction.triggered.connect(self.newFile)
 
-        openAction = fileMenu.addAction(createIcon(':file-open', self.colorTheme), '&Open...')
+        openAction = fileMenu.addAction('&Open...')
         openAction.setShortcut("Ctrl+O")
         openAction.setStatusTip("Open a file")
         openAction.triggered.connect(self.openFile)
 
-        saveAction = fileMenu.addAction(createIcon(':file-save', self.colorTheme),'&Save')
+        saveAction = fileMenu.addAction('&Save')
         saveAction.setShortcut("Ctrl+S")
         saveAction.setStatusTip("Save the current file")
         saveAction.triggered.connect(self.saveFile)
@@ -53,7 +62,7 @@ class ItemTable(QMainWindow):
 
         fileMenu.addSeparator()
 
-        quitAction = fileMenu.addAction(createIcon(':quit', self.colorTheme), '&Quit')
+        quitAction = fileMenu.addAction('&Quit')
         quitAction.setShortcut("Ctrl+Q")
         quitAction.setStatusTip("Quit the application")
         quitAction.triggered.connect(self.close)
@@ -62,44 +71,61 @@ class ItemTable(QMainWindow):
 
         # Set up undo action
         self.undoStack = []
-        undoAction = editMenu.addAction(createIcon(':edit-undo', self.colorTheme),'&Undo')
+        undoAction = editMenu.addAction('&Undo')
         undoAction.setShortcut("Ctrl+Z")
         undoAction.setStatusTip("Undo the last operation")
         undoAction.triggered.connect(self.undo)
 
         # Set up redo action
         self.redoStack = []
-        redoAction = editMenu.addAction(createIcon(':edit-redo', self.colorTheme),'&Redo')
+        redoAction = editMenu.addAction('&Redo')
         redoAction.setShortcut("Ctrl+Y")
         redoAction.setStatusTip("Redo the last operation")
         redoAction.triggered.connect(self.redo)
 
         editMenu.addSeparator()
 
-        addItemAction = editMenu.addAction(createIcon(':item-add', self.colorTheme),'&Add item')
+        addItemAction = editMenu.addAction('&Add item')
         addItemAction.setShortcut("Alt+N")
         addItemAction.setStatusTip("Add an item to the list")
         addItemAction.triggered.connect(self.addItem)
 
-        removeItemAction = editMenu.addAction(createIcon(':item-remove', self.colorTheme),'&Remove item')
+        removeItemAction = editMenu.addAction('&Remove item')
         removeItemAction.setShortcut("Del")
         removeItemAction.setStatusTip("Remove an item from the list")
         removeItemAction.triggered.connect(self.removeItem)
 
-        duplicateItemAction = editMenu.addAction(createIcon(':item-duplicate', self.colorTheme),'&Duplicate item')
+        duplicateItemAction = editMenu.addAction('&Duplicate item')
         duplicateItemAction.setShortcut("Alt+D")
         duplicateItemAction.setStatusTip("Duplicate an item from the list")
         duplicateItemAction.triggered.connect(self.duplicateItem)
 
         settingsMenu = menubar.addMenu('&Settings')
-        programSettAction = settingsMenu.addAction(createIcon(':settings-program', self.colorTheme),'&Program settings')
+        programSettAction = settingsMenu.addAction('&Program settings')
         programSettAction.setShortcut("Ctrl+R")
         programSettAction.setStatusTip("Configure the program behavior.")
+        programSettAction.triggered.connect(self.changeConfig)
 
         helpMenu = menubar.addMenu('&Help')
-        aboutAction = helpMenu.addAction(createIcon(':help-about', self.colorTheme), '&About')
+        aboutAction = helpMenu.addAction('&About')
         aboutAction.setShortcut("Ctrl+H")
         aboutAction.setStatusTip("Get help and info about this program.")
+
+        # Add icons to all actions.
+        self.actionsIcons = [
+            [newAction,             ':file-new'],
+            [openAction,            ':file-open'],
+            [saveAction,            ':file-save'],
+            [quitAction,            ':quit'],
+            [undoAction,            ':edit-undo'],
+            [redoAction,            ':edit-redo'],
+            [addItemAction,         ':item-add'],
+            [removeItemAction,      ':item-remove'],    
+            [duplicateItemAction,   ':item-duplicate'],        
+            [programSettAction,     ':settings-program'],    
+            [aboutAction,           ':help-about']
+        ]
+        self.redrawIcons(self.config)
 
         # Tool bar
         fileToolBar = self.addToolBar('File')
@@ -153,8 +179,9 @@ class ItemTable(QMainWindow):
         
         # Set table properties
         self.tableWidget.verticalHeader().setVisible(False)  # Remove row numbers
-        self.tableWidget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # Select entire rows
-        self.tableWidget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection) # Single row selection
+        # self.tableWidget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        # self.tableWidget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+
         # Enable sorting
         self.tableWidget.setSortingEnabled(True)
         
@@ -195,15 +222,23 @@ class ItemTable(QMainWindow):
         self.enabledField = QCheckBox()
         self.formLayout.addRow("Enabled:", self.enabledField)
 
+        self.codeField = CodeTextField()
+        self.formLayout.addRow("Command:", self.codeField)
+
         # Connect changes in the detail fields to update the table
         self.idField.lineEdit.textEdited.connect(self.updateTableFromDetails)
         self.nameField.lineEdit.textEdited.connect(self.updateTableFromDetails)
         self.categoryField.lineEdit.textEdited.connect(self.updateTableFromDetails)
         self.repetitionsField.lineEdit.textEdited.connect(self.updateTableFromDetails)
         self.enabledField.toggled.connect(self.updateTableFromDetails)
+        self.codeField.textEdit.textChanged.connect(self.updateTableFromDetails)
 
         # Initially hide the details widget
         self.detailsWidget.hide()
+
+    def redrawIcons(self, programConfig : ProgramConfig):
+        for act in self.actionsIcons:
+            act[0].setIcon(createIcon(act[1], programConfig))
 
     def newFile(self):
         if self.unsavedChanges:
@@ -324,7 +359,7 @@ class ItemTable(QMainWindow):
             
             checkbox = QCheckBox()
             checkbox.setChecked(item.enabled)
-            checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledFromTable(r, state))
+            checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledCheckboxFromTable(r, state))
             self.tableWidget.setCellWidget(row, 4, checkbox)
         
         self.tableWidget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -336,13 +371,14 @@ class ItemTable(QMainWindow):
     def showDetails(self, row, column = -1):
         item = self.items[row]
         self.currentRow = row
+
         self.idField.setText(str(item.id))
         self.nameField.setText(item.name)
         self.categoryField.setText(item.category)
         self.repetitionsField.setText(str(item.repetitions))
-        self.enabledField.blockSignals(True)
         self.enabledField.setChecked(item.enabled)
-        self.enabledField.blockSignals(False)
+        self.codeField.setText(item.runcode)
+
         self.detailsWidget.show()
 
         # Highlight the entire row
@@ -367,7 +403,8 @@ class ItemTable(QMainWindow):
             self.repetitionsField.setError("Repetitions cannot be empty.")
 
     def updateDetailsFromSelection(self, currentRow, currentColumn, previousRow, previousColumn):
-        if currentRow != -1 and currentRow < len(self.items):  # Ensure a valid row is selected
+        # Ensure a valid row is selected
+        if currentRow != -1 and currentRow < len(self.items):  
             self.showDetails(currentRow, currentColumn)
         else:
             self.detailsWidget.hide()
@@ -426,6 +463,8 @@ class ItemTable(QMainWindow):
         
         item.enabled = self.enabledField.isChecked()
 
+        item.runcode = self.codeField.getCommand(self.config.validateCommands)
+
         self.tableWidget.item(self.currentRow, 0).setText(str(item.id))
         self.tableWidget.item(self.currentRow, 1).setText(item.name)
         self.tableWidget.item(self.currentRow, 2).setText(item.category)
@@ -436,16 +475,14 @@ class ItemTable(QMainWindow):
         
         self.unsavedChanges = True
 
-    def updateEnabledFromTable(self, row, state):
+    def updateEnabledCheckboxFromTable(self, row, state):
         # Update the row when clicking on the checkbox.
         self.currentRow = row
         self.showDetails(row)
 
         item = self.items[row]
         item.enabled = (state == Qt.CheckState.Checked.value)
-        self.enabledField.blockSignals(True)
         self.enabledField.setChecked(item.enabled)
-        self.enabledField.blockSignals(False)
 
     # Check that the ID is not being used.
     def checkIDOk(self, newID) -> int:
@@ -501,7 +538,7 @@ class ItemTable(QMainWindow):
         self.tableWidget.setItem(row, 3, QTableWidgetItem(str(newItem.repetitions)))
         checkbox = QCheckBox()
         checkbox.setChecked(newItem.enabled)
-        checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledFromTable(r, state))
+        checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledCheckboxFromTable(r, state))
         self.tableWidget.setCellWidget(row, 4, checkbox)
         self.undoStack.append(('remove', newItem))
         self.tableWidget.scrollToBottom()
@@ -523,8 +560,12 @@ class ItemTable(QMainWindow):
         selectedItem = self.tableWidget.selectedItems()
         if selectedItem:
             row = selectedItem[0].row()
-            self.addItem(self.items[row])
+            self.addItem(deepcopy(self.items[row]))
             self.unsavedChanges = True
+
+    def changeConfig(self):
+        settingsWindow = SettingsWindow(self.config, self)
+        settingsWindow.exec()
 
     def undo(self):
         if not self.undoStack:
@@ -541,7 +582,7 @@ class ItemTable(QMainWindow):
             self.tableWidget.setItem(row, 3, QTableWidgetItem(str(item.repetitions)))
             checkbox = QCheckBox()
             checkbox.setChecked(item.enabled)
-            checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledFromTable(r, state))
+            checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledCheckboxFromTable(r, state))
             self.tableWidget.setCellWidget(row, 4, checkbox)
         elif action == 'remove':
             self.items.remove(item)
@@ -566,7 +607,7 @@ class ItemTable(QMainWindow):
             self.tableWidget.setItem(row, 3, QTableWidgetItem(str(item.repetitions)))
             checkbox = QCheckBox()
             checkbox.setChecked(item.enabled)
-            checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledFromTable(r, state))
+            checkbox.stateChanged.connect(lambda state, r=row: self.updateEnabledCheckboxFromTable(r, state))
             self.tableWidget.setCellWidget(row, 4, checkbox)
         elif action == 'remove':
             self.items.remove(item)
