@@ -22,7 +22,7 @@ class CodeTextField(QWidget):
     def getCommand(self, validateCommand : bool) -> Optional[str]:
         commandText = self.textEdit.toPlainText().strip()
         if validateCommand and not self._validateCommand(commandText):
-            return
+            return None
         return commandText
 
     def _validateCommand(self, command) -> bool:
